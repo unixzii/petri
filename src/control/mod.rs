@@ -1,3 +1,4 @@
+mod command;
 pub mod env;
 
 use std::collections::HashMap;
@@ -6,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::runtime::Handle as TokioHandle;
@@ -112,7 +113,7 @@ impl Inner {
             let mut reader = BufReader::new(read_half);
 
             let mut line = String::new();
-            if let Ok(_) = reader.read_line(&mut line).await {
+            if reader.read_line(&mut line).await.is_ok() {
                 if let Err(err) = inner.run_command(&line, write_half).await {
                     println!("failed to run command: {}", err);
                 }
@@ -129,12 +130,7 @@ impl Inner {
         payload: &str,
         mut write_half: OwnedWriteHalf,
     ) -> Result<()> {
-        let args: Vec<String> = serde_json::from_str(&payload)?;
-
-        // TODO: echo just for testing.
-        let echo_str = args.join(" ");
-        write_half.write_all(echo_str.as_bytes()).await?;
-
-        Ok(())
+        let args: Vec<String> = serde_json::from_str(payload)?;
+        command::run_command(&args, &mut write_half).await
     }
 }

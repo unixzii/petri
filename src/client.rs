@@ -114,7 +114,7 @@ fn start_server_as_daemon() {
 
     // Daemonization is done. Now we can execute the program in server
     // mode, and exit the current process.
-    Command::new(&current_exe)
+    Command::new(current_exe)
         .arg("--server")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
