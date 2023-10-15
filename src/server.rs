@@ -1,17 +1,29 @@
 use std::io::Write;
 
+use anyhow::Result;
+
+use crate::control::Control;
 use crate::proc_mgr::{ProcessManager, StartInfo};
 
-pub async fn run_daemon() {
+pub async fn run_server() {
+    // TODO: configure logging.
+    server_main().await.unwrap();
+}
+
+async fn server_main() -> Result<()> {
     let process_manager = ProcessManager::new();
+    let control = Control::new()?;
 
     #[cfg(debug_assertions)]
     test(&process_manager).await;
 
     println!("shutting down...");
+    control.shutdown().await;
     process_manager.shutdown().await;
 
     println!("bye!");
+
+    Ok(())
 }
 
 #[cfg(debug_assertions)]

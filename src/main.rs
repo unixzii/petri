@@ -1,11 +1,20 @@
 #[macro_use]
 extern crate anyhow;
 
-mod daemon;
+mod client;
+mod control;
 mod proc_mgr;
+mod server;
 mod util;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    daemon::run_daemon().await;
+    let args: Vec<_> = std::env::args().collect();
+
+    if args.len() == 2 && args[1] == "--server" {
+        server::run_server().await;
+        return;
+    }
+
+    client::run_client(args).await;
 }
