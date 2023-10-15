@@ -46,6 +46,7 @@ impl<T: Send + Sync> SubscriberList<T> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn close(&self) {
         self.inner.map.write().unwrap().clear();
     }

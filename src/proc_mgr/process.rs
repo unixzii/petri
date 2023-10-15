@@ -155,9 +155,6 @@ impl Inner {
                 let real_exit_code = exit_status.code().unwrap_or(1);
                 _ = exit_code.send(real_exit_code);
 
-                // Also close currently active output subscribers.
-                process_inner.output_subscribers.close();
-
                 if let Some(manager_inner) = process_inner.manager_inner.upgrade() {
                     manager_inner
                         .handle_process_exit(process_inner.id, real_exit_code)
