@@ -10,14 +10,15 @@ use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{oneshot, watch};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{oneshot, RwLock};
 use tokio::task;
 
 use crate::proc_mgr::Handle as ProcessManagerHandle;
 
 pub struct Control {
     inner: Arc<Inner>,
+    shutdown_signal: oneshot::Sender<()>,
+    shutdown_result: oneshot::Receiver<()>,
 }
 
 pub(crate) struct Context {
@@ -29,9 +30,6 @@ struct Inner {
     pairs: RwLock<HashMap<u64, ControlPair>>,
 
     ctx: Context,
-
-    shutdown_signal: watch::Sender<bool>,
-    shutdown_result: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 struct ControlPair;
@@ -41,33 +39,26 @@ impl Control {
         let sock_path = env::socket_path()?;
         let listener = UnixListener::bind(sock_path)?;
 
-        let (shutdown_signal_tx, mut shutdown_signal_rx) = watch::channel(false);
+        let (shutdown_signal_tx, shutdown_signal_rx) = oneshot::channel();
         let (shutdown_result_tx, shutdown_result_rx) = oneshot::channel();
 
         let inner = Arc::new(Inner {
             id_seed: Default::default(),
             pairs: Default::default(),
             ctx: Context { proc_mgr_handle },
-            shutdown_signal: shutdown_signal_tx,
-            shutdown_result: Mutex::new(Some(shutdown_result_rx)),
         });
 
         let inner_clone = Arc::clone(&inner);
         task::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = shutdown_signal_rx.changed() => {
-                        if *shutdown_signal_rx.borrow_and_update() {
-                            break;
-                        }
-                    },
-                    _ = inner_clone.accept_loop(&listener) => {
-                        unreachable!("`accept_loop` should not return")
-                    }
+            tokio::select! {
+                _ = shutdown_signal_rx => { },
+                _ = inner_clone.accept_loop(&listener) => {
+                    unreachable!("`accept_loop` should not return")
                 }
             }
 
             // Close and cleanup the socket.
+            // TODO: force closing all active connections.
             let sock_addr = listener.local_addr().expect("could not get local address");
             fs::remove_file(
                 sock_addr
@@ -79,17 +70,21 @@ impl Control {
             _ = shutdown_result_tx.send(());
         });
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            shutdown_signal: shutdown_signal_tx,
+            shutdown_result: shutdown_result_rx,
+        })
     }
 
-    pub async fn shutdown(&self) {
-        let mut shutdown_result = self.inner.shutdown_result.lock().await;
-        let Some(shutdown_result) = shutdown_result.take() else {
-            return;
-        };
+    pub async fn shutdown(self) {
+        self.shutdown_signal
+            .send(())
+            .expect("background task exited too early");
 
-        _ = self.inner.shutdown_signal.send(true);
-        shutdown_result.await.expect("expected shutdown result");
+        self.shutdown_result
+            .await
+            .expect("expected shutdown result");
     }
 }
 

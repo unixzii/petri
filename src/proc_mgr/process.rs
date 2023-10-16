@@ -6,8 +6,7 @@ use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::{oneshot, watch};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{oneshot, watch, Mutex, RwLock};
 use tokio::task;
 
 use super::Inner as ProcessManagerInner;
@@ -24,17 +23,17 @@ pub struct Process {
     inner: Arc<Inner>,
 }
 
-enum ExitCode {
-    Pending(oneshot::Receiver<i32>),
-    Completed(i32),
+enum State {
+    Running(oneshot::Sender<()>, watch::Receiver<Option<i32>>),
+    Terminating(watch::Receiver<Option<i32>>),
+    Terminated(i32),
+    Placeholder,
 }
 
 struct Inner {
     id: u32,
-    exit_code: Mutex<ExitCode>,
+    state: Mutex<State>,
     manager_inner: Weak<ProcessManagerInner>,
-
-    kill_signal: watch::Sender<bool>,
 
     output_buf_list: RwLock<BufList>,
     output_subscribers: SubscriberList<UnboundedSender<Vec<u8>>>,
@@ -68,13 +67,12 @@ impl Process {
             return Err(anyhow!("cannot get stderr pipe"));
         };
 
-        let (kill_signal_tx, kill_signal_rx) = watch::channel(false);
-        let (exit_code_tx, exit_code_rx) = oneshot::channel();
+        let (kill_signal_tx, kill_signal_rx) = oneshot::channel();
+        let (exit_code_tx, exit_code_rx) = watch::channel(None);
         let inner = Arc::new(Inner {
             id,
-            exit_code: Mutex::new(ExitCode::Pending(exit_code_rx)),
+            state: Mutex::new(State::Running(kill_signal_tx, exit_code_rx)),
             manager_inner: Arc::downgrade(manager_inner),
-            kill_signal: kill_signal_tx,
             output_buf_list: Default::default(),
             output_subscribers: Default::default(),
         });
@@ -88,21 +86,43 @@ impl Process {
     }
 
     pub async fn kill(&self) -> i32 {
-        _ = self.inner.kill_signal.send(true);
+        let mut state = self.inner.state.lock().await;
 
-        let mut exit_code_lock = self.inner.exit_code.lock().await;
-        // Take the current value of `exit_code` and put a placeholder.
-        let mut exit_code = ExitCode::Completed(0);
-        std::mem::swap(&mut *exit_code_lock, &mut exit_code);
+        // Take the current state and put a placeholder.
+        let mut current_state = State::Placeholder;
+        std::mem::swap(&mut *state, &mut current_state);
 
-        let exit_code = match exit_code {
-            ExitCode::Pending(rx) => rx
-                .await
-                .expect("`exit_code` sender should not drop without sending values"),
-            ExitCode::Completed(code) => code,
+        let mut exit_code_rx = match current_state {
+            State::Running(kill_signal_tx, exit_code_rx) => {
+                _ = kill_signal_tx.send(());
+                *state = State::Terminating(exit_code_rx.clone());
+                exit_code_rx
+            }
+            State::Terminating(exit_code_rx) => {
+                *state = State::Terminating(exit_code_rx.clone());
+                exit_code_rx
+            }
+            State::Terminated(exit_code) => {
+                *state = State::Terminated(exit_code);
+                return exit_code;
+            }
+            State::Placeholder => {
+                unreachable!()
+            }
         };
 
-        *exit_code_lock = ExitCode::Completed(exit_code);
+        drop(state);
+
+        // Wait for the exit code and update the state.
+        exit_code_rx
+            .changed()
+            .await
+            .expect("`exit_code` sender should not drop without sending values");
+        let exit_code = exit_code_rx
+            .borrow_and_update()
+            .expect("the sent value should not be empty");
+        *self.inner.state.lock().await = State::Terminated(exit_code);
+
         exit_code
     }
 
@@ -132,36 +152,42 @@ impl Inner {
         stdout: ChildStdout,
         stderr: ChildStderr,
         mut child: Child,
-        mut kill_signal: watch::Receiver<bool>,
-        exit_code: oneshot::Sender<i32>,
+        kill_signal: oneshot::Receiver<()>,
+        exit_code_tx: watch::Sender<Option<i32>>,
     ) {
         self.read_stdio(stdout);
         self.read_stdio(stderr);
 
         let process_inner = Arc::clone(self);
         task::spawn(async move {
-            loop {
-                let exit_status = tokio::select! {
-                    exit_status = child.wait() => {
-                        exit_status.expect("failed to wait child")
-                    },
-                    _ = kill_signal.changed() => {
-                        if *kill_signal.borrow_and_update() {
-                            _ = child.start_kill();
-                        }
-                        continue;
+            let exit_status = tokio::select! {
+                exit_status = child.wait() => {
+                    Some(exit_status.expect("failed to wait child"))
+                },
+                kill_signal = kill_signal => {
+                    if kill_signal.is_ok() {
+                        _ = child.start_kill();
                     }
-                };
-                // TODO: the exit code is simulated for processes that were killed by signals.
-                let real_exit_code = exit_status.code().unwrap_or(1);
-                _ = exit_code.send(real_exit_code);
-
-                if let Some(manager_inner) = process_inner.manager_inner.upgrade() {
-                    manager_inner
-                        .handle_process_exit(process_inner.id, real_exit_code)
-                        .await;
+                    None
                 }
-                return;
+            };
+
+            let exit_status = if let Some(exit_status) = exit_status {
+                exit_status
+            } else {
+                // The process is killed but not terminated yet, we need
+                // to wait it again.
+                child.wait().await.expect("failed to wait child")
+            };
+
+            // TODO: the exit code is simulated for processes that were killed by signals.
+            let exit_code = exit_status.code().unwrap_or(1);
+            _ = exit_code_tx.send(Some(exit_code));
+
+            if let Some(manager_inner) = process_inner.manager_inner.upgrade() {
+                manager_inner
+                    .handle_process_exit(process_inner.id, exit_code)
+                    .await;
             }
         });
     }
