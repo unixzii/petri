@@ -10,9 +10,9 @@ use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::runtime::Handle as TokioHandle;
 use tokio::sync::{oneshot, watch};
 use tokio::sync::{Mutex, RwLock};
+use tokio::task;
 
 use crate::proc_mgr::Handle as ProcessManagerHandle;
 
@@ -53,7 +53,7 @@ impl Control {
         });
 
         let inner_clone = Arc::clone(&inner);
-        TokioHandle::current().spawn(async move {
+        task::spawn(async move {
             loop {
                 tokio::select! {
                     _ = shutdown_signal_rx.changed() => {
@@ -117,7 +117,7 @@ impl Inner {
         self.pairs.write().await.insert(id, pair);
 
         let inner = Arc::clone(self);
-        TokioHandle::current().spawn(async move {
+        task::spawn(async move {
             let (read_half, write_half) = stream.into_split();
             let mut reader = BufReader::new(read_half);
 

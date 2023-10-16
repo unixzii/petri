@@ -5,10 +5,10 @@ use std::sync::{Arc, Weak};
 use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
-use tokio::runtime::Handle as TokioHandle;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{oneshot, watch};
 use tokio::sync::{Mutex, RwLock};
+use tokio::task;
 
 use super::Inner as ProcessManagerInner;
 use crate::util::subscriber_list::{self, SubscriberList};
@@ -135,13 +135,11 @@ impl Inner {
         mut kill_signal: watch::Receiver<bool>,
         exit_code: oneshot::Sender<i32>,
     ) {
-        let rt_handle = TokioHandle::current();
-
-        self.read_stdio(&rt_handle, stdout);
-        self.read_stdio(&rt_handle, stderr);
+        self.read_stdio(stdout);
+        self.read_stdio(stderr);
 
         let process_inner = Arc::clone(self);
-        rt_handle.spawn(async move {
+        task::spawn(async move {
             loop {
                 let exit_status = tokio::select! {
                     exit_status = child.wait() => {
@@ -168,13 +166,9 @@ impl Inner {
         });
     }
 
-    fn read_stdio<R: AsyncRead + Send + Unpin + 'static>(
-        self: &Arc<Self>,
-        rt_handle: &TokioHandle,
-        mut pipe: R,
-    ) {
+    fn read_stdio<R: AsyncRead + Send + Unpin + 'static>(self: &Arc<Self>, mut pipe: R) {
         let self_clone = Arc::clone(self);
-        rt_handle.spawn(async move {
+        task::spawn(async move {
             let mut buf = Vec::with_capacity(STDIO_BUF_SIZE);
             loop {
                 match pipe.read_buf(&mut buf).await {
