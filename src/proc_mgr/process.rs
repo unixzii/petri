@@ -10,7 +10,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{oneshot, watch};
 use tokio::sync::{Mutex, RwLock};
 
-use super::{Inner as ProcessManagerInner, ProcessManager};
+use super::Inner as ProcessManagerInner;
 use crate::util::subscriber_list::{self, SubscriberList};
 use crate::util::{BufList, VecExt};
 
@@ -41,7 +41,10 @@ struct Inner {
 }
 
 impl Process {
-    pub(super) fn spawn(start_info: &StartInfo, manager: &ProcessManager) -> Result<Self> {
+    pub(super) fn spawn(
+        start_info: &StartInfo,
+        manager_inner: &Arc<ProcessManagerInner>,
+    ) -> Result<Self> {
         let mut command = Command::new(&start_info.program);
 
         if let Some(args) = &start_info.args {
@@ -70,7 +73,7 @@ impl Process {
         let inner = Arc::new(Inner {
             id,
             exit_code: Mutex::new(ExitCode::Pending(exit_code_rx)),
-            manager_inner: Arc::downgrade(&manager.inner),
+            manager_inner: Arc::downgrade(manager_inner),
             kill_signal: kill_signal_tx,
             output_buf_list: Default::default(),
             output_subscribers: Default::default(),

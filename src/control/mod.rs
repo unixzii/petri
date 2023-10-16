@@ -14,13 +14,21 @@ use tokio::runtime::Handle as TokioHandle;
 use tokio::sync::{oneshot, watch};
 use tokio::sync::{Mutex, RwLock};
 
+use crate::proc_mgr::Handle as ProcessManagerHandle;
+
 pub struct Control {
     inner: Arc<Inner>,
+}
+
+pub(crate) struct Context {
+    pub proc_mgr_handle: ProcessManagerHandle,
 }
 
 struct Inner {
     id_seed: AtomicU64,
     pairs: RwLock<HashMap<u64, ControlPair>>,
+
+    ctx: Context,
 
     shutdown_signal: watch::Sender<bool>,
     shutdown_result: Mutex<Option<oneshot::Receiver<()>>>,
@@ -29,7 +37,7 @@ struct Inner {
 struct ControlPair;
 
 impl Control {
-    pub fn new() -> Result<Control> {
+    pub fn new(proc_mgr_handle: ProcessManagerHandle) -> Result<Control> {
         let sock_path = env::socket_path()?;
         let listener = UnixListener::bind(sock_path)?;
 
@@ -39,6 +47,7 @@ impl Control {
         let inner = Arc::new(Inner {
             id_seed: Default::default(),
             pairs: Default::default(),
+            ctx: Context { proc_mgr_handle },
             shutdown_signal: shutdown_signal_tx,
             shutdown_result: Mutex::new(Some(shutdown_result_rx)),
         });
@@ -115,7 +124,7 @@ impl Inner {
             let mut line = String::new();
             if reader.read_line(&mut line).await.is_ok() {
                 if let Err(err) = inner.run_command(&line, write_half).await {
-                    println!("failed to run command: {}", err);
+                    println!("failed to run command: {:?}", err);
                 }
             } else {
                 println!("failed to read from the stream");
@@ -131,6 +140,6 @@ impl Inner {
         mut write_half: OwnedWriteHalf,
     ) -> Result<()> {
         let args: Vec<String> = serde_json::from_str(payload)?;
-        command::run_command(&args, &mut write_half).await
+        command::run_command(&args, &self.ctx, &mut write_half).await
     }
 }

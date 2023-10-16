@@ -1,18 +1,31 @@
+mod run;
+mod stop;
+
 use anyhow::Result;
 use clap::{ColorChoice, Parser};
 use tokio::io::AsyncWriteExt;
 use tokio::net::unix::OwnedWriteHalf;
+
+use super::Context as ControlContext;
 
 #[derive(Parser, Debug)]
 #[command(name = "petri")]
 #[command(bin_name = "petri")]
 #[command(color = ColorChoice::Always)]
 enum Command {
+    /// Run an arbitrary command.
+    Run(run::RunSubcommand),
+    /// Stop a currently running process.
+    Stop(stop::StopSubcommand),
     /// Request the server to stop.
     StopServer,
 }
 
-pub async fn run_command(args: &[String], write_half: &mut OwnedWriteHalf) -> Result<()> {
+pub async fn run_command(
+    args: &[String],
+    ctx: &ControlContext,
+    write_half: &mut OwnedWriteHalf,
+) -> Result<()> {
     let command = match Command::try_parse_from(args) {
         Ok(command) => command,
         Err(err) => {
@@ -22,8 +35,11 @@ pub async fn run_command(args: &[String], write_half: &mut OwnedWriteHalf) -> Re
         }
     };
 
-    let echo_string = format!("{:?}", command);
-    write_half.write_all(echo_string.as_bytes()).await?;
+    match command {
+        Command::Run(subcommand) => subcommand.run(ctx, write_half).await?,
+        Command::Stop(subcommand) => subcommand.run(ctx, write_half).await?,
+        Command::StopServer => todo!(),
+    }
 
     Ok(())
 }
