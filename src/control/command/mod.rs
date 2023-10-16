@@ -6,7 +6,7 @@ use clap::{ColorChoice, Parser};
 use tokio::io::AsyncWriteExt;
 use tokio::net::unix::OwnedWriteHalf;
 
-use super::Context as ControlContext;
+use super::{Context as ControlContext, Message as ControlMessage};
 
 #[derive(Parser, Debug)]
 #[command(name = "petri")]
@@ -38,7 +38,12 @@ pub async fn run_command(
     match command {
         Command::Run(subcommand) => subcommand.run(ctx, write_half).await?,
         Command::Stop(subcommand) => subcommand.run(ctx, write_half).await?,
-        Command::StopServer => todo!(),
+        Command::StopServer => {
+            _ = ctx.message_tx.send(ControlMessage::RequestShutdown).await;
+            write_half
+                .write_all(b"requested the server to shutdown")
+                .await?;
+        }
     }
 
     Ok(())

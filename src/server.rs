@@ -1,6 +1,7 @@
 use anyhow::Result;
+use tokio::sync::mpsc;
 
-use crate::control::Control;
+use crate::control::{Control, Message as ControlMessage};
 use crate::proc_mgr::ProcessManager;
 
 pub async fn run_server() {
@@ -9,11 +10,20 @@ pub async fn run_server() {
 }
 
 async fn server_main() -> Result<()> {
+    let (message_tx, mut message_rx) = mpsc::channel(8);
     let process_manager = ProcessManager::new();
-    let control = Control::new(process_manager.handle())?;
+    let control = Control::new(process_manager.handle(), message_tx)?;
 
-    #[cfg(debug_assertions)]
-    prototype_keep_alive().await;
+    // TODO: remove this attribute when adding more branches.
+    #[allow(clippy::never_loop)]
+    while let Some(message) = message_rx.recv().await {
+        match message {
+            ControlMessage::RequestShutdown => {
+                println!("client requested to shutdown the server");
+                break;
+            }
+        }
+    }
 
     println!("shutting down...");
     control.shutdown().await;
@@ -22,12 +32,4 @@ async fn server_main() -> Result<()> {
     println!("bye!");
 
     Ok(())
-}
-
-#[cfg(debug_assertions)]
-async fn prototype_keep_alive() {
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        println!("still alive");
-    }
 }

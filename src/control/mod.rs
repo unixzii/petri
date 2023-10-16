@@ -1,5 +1,6 @@
 mod command;
 pub mod env;
+mod message;
 
 use std::collections::HashMap;
 use std::fs;
@@ -10,10 +11,11 @@ use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task;
 
 use crate::proc_mgr::Handle as ProcessManagerHandle;
+pub use message::Message;
 
 pub struct Control {
     inner: Arc<Inner>,
@@ -23,6 +25,7 @@ pub struct Control {
 
 pub(crate) struct Context {
     pub proc_mgr_handle: ProcessManagerHandle,
+    pub message_tx: mpsc::Sender<Message>,
 }
 
 struct Inner {
@@ -35,7 +38,10 @@ struct Inner {
 struct ControlPair;
 
 impl Control {
-    pub fn new(proc_mgr_handle: ProcessManagerHandle) -> Result<Control> {
+    pub fn new(
+        proc_mgr_handle: ProcessManagerHandle,
+        message_tx: mpsc::Sender<Message>,
+    ) -> Result<Control> {
         let sock_path = env::socket_path()?;
         let listener = UnixListener::bind(sock_path)?;
 
@@ -45,7 +51,10 @@ impl Control {
         let inner = Arc::new(Inner {
             id_seed: Default::default(),
             pairs: Default::default(),
-            ctx: Context { proc_mgr_handle },
+            ctx: Context {
+                proc_mgr_handle,
+                message_tx,
+            },
         });
 
         let inner_clone = Arc::clone(&inner);
