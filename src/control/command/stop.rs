@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Args;
 use tokio::io::AsyncWriteExt;
-use tokio::net::unix::OwnedWriteHalf;
+use tokio::net::UnixStream;
 
 use crate::control::Context as ControlContext;
 
@@ -13,15 +13,15 @@ pub struct StopSubcommand {
 }
 
 impl StopSubcommand {
-    pub async fn run(self, ctx: &ControlContext, write_half: &mut OwnedWriteHalf) -> Result<()> {
+    pub async fn run(self, ctx: &ControlContext, stream: &mut UnixStream) -> Result<()> {
         match ctx.proc_mgr_handle.stop_process(self.pid).await {
             Ok(exit_code) => {
-                write_half
+                stream
                     .write_all(format!("process stopped with exit code {exit_code}").as_bytes())
                     .await?;
             }
             Err(err) => {
-                write_half
+                stream
                     .write_all(b"failed to stop the process (is it running?)")
                     .await?;
                 return Err(err.context("stop"));

@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task;
@@ -18,7 +17,6 @@ use crate::proc_mgr::Handle as ProcessManagerHandle;
 pub use message::Message;
 
 pub struct Control {
-    inner: Arc<Inner>,
     shutdown_signal: oneshot::Sender<()>,
     shutdown_result: oneshot::Receiver<()>,
 }
@@ -80,7 +78,6 @@ impl Control {
         });
 
         Ok(Self {
-            inner,
             shutdown_signal: shutdown_signal_tx,
             shutdown_result: shutdown_result_rx,
         })
@@ -127,7 +124,11 @@ impl Inner {
 
             let mut line = String::new();
             if reader.read_line(&mut line).await.is_ok() {
-                if let Err(err) = inner.run_command(&line, write_half).await {
+                let stream = reader
+                    .into_inner()
+                    .reunite(write_half)
+                    .expect("should reunite into stream");
+                if let Err(err) = inner.run_command(&line, stream).await {
                     println!("failed to run command: {:?}", err);
                 }
             } else {
@@ -138,12 +139,8 @@ impl Inner {
         });
     }
 
-    async fn run_command(
-        self: &Arc<Self>,
-        payload: &str,
-        mut write_half: OwnedWriteHalf,
-    ) -> Result<()> {
+    async fn run_command(self: &Arc<Self>, payload: &str, mut stream: UnixStream) -> Result<()> {
         let args: Vec<String> = serde_json::from_str(payload)?;
-        command::run_command(&args, &self.ctx, &mut write_half).await
+        command::run_command(&args, &self.ctx, &mut stream).await
     }
 }

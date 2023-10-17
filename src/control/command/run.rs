@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Args;
 use tokio::io::AsyncWriteExt;
-use tokio::net::unix::OwnedWriteHalf;
+use tokio::net::UnixStream;
 
 use crate::control::Context as ControlContext;
 use crate::proc_mgr::StartInfo;
@@ -13,7 +13,7 @@ pub struct RunSubcommand {
 }
 
 impl RunSubcommand {
-    pub async fn run(self, ctx: &ControlContext, write_half: &mut OwnedWriteHalf) -> Result<()> {
+    pub async fn run(self, ctx: &ControlContext, stream: &mut UnixStream) -> Result<()> {
         let (program, args) = {
             let mut cmd_line = self.cmd_line;
             let args = cmd_line.split_off(1);
@@ -21,7 +21,7 @@ impl RunSubcommand {
         };
 
         let Some(program) = program.into_iter().next() else {
-            write_half.write_all(b"program must be specified").await?;
+            stream.write_all(b"program must be specified").await?;
             return Err(anyhow!("no program is specified").context("run"));
         };
 
@@ -35,14 +35,14 @@ impl RunSubcommand {
         {
             Ok(id) => id,
             Err(err) => {
-                write_half
+                stream
                     .write_all(b"failed to start the process (maybe it exited too early)")
                     .await?;
                 return Err(err.context("run"));
             }
         };
 
-        write_half
+        stream
             .write_all(format!("process started (pid: {pid})").as_bytes())
             .await?;
 
