@@ -1,3 +1,4 @@
+mod log;
 mod run;
 mod stop;
 
@@ -17,6 +18,8 @@ enum Command {
     Run(run::RunSubcommand),
     /// Stop a currently running process.
     Stop(stop::StopSubcommand),
+    /// Stream logs of a process.
+    Log(log::LogSubcommand),
     /// Request the server to stop.
     StopServer,
 }
@@ -38,6 +41,7 @@ pub async fn run_command(
     match command {
         Command::Run(subcommand) => subcommand.run(ctx, write_half).await?,
         Command::Stop(subcommand) => subcommand.run(ctx, write_half).await?,
+        Command::Log(subcommand) => subcommand.run(ctx, write_half).await?,
         Command::StopServer => {
             _ = ctx.message_tx.send(ControlMessage::RequestShutdown).await;
             write_half
