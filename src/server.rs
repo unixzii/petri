@@ -1,7 +1,7 @@
 use anyhow::Result;
-use tokio::sync::mpsc;
+use tokio::sync::watch;
 
-use crate::control::{Control, Message as ControlMessage};
+use crate::control::Control;
 use crate::proc_mgr::ProcessManager;
 
 pub async fn run_server() {
@@ -10,18 +10,16 @@ pub async fn run_server() {
 }
 
 async fn server_main() -> Result<()> {
-    let (message_tx, mut message_rx) = mpsc::channel(8);
+    let (shutdown_request_tx, mut shutdown_request_rx) = watch::channel(false);
     let process_manager = ProcessManager::new();
-    let control = Control::new(process_manager.handle(), message_tx)?;
+    let control = Control::new(process_manager.handle(), shutdown_request_tx)?;
 
-    // TODO: remove this attribute when adding more branches.
-    #[allow(clippy::never_loop)]
-    while let Some(message) = message_rx.recv().await {
-        match message {
-            ControlMessage::RequestShutdown => {
-                println!("client requested to shutdown the server");
-                break;
-            }
+    loop {
+        shutdown_request_rx.changed().await?;
+        let is_shutdown_requested = *shutdown_request_rx.borrow_and_update();
+        if is_shutdown_requested {
+            println!("client requested to shutdown the server");
+            break;
         }
     }
 

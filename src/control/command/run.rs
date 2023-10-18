@@ -1,19 +1,23 @@
 use anyhow::Result;
 use clap::Args;
-use tokio::io::AsyncWriteExt;
-use tokio::net::UnixStream;
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::control::Context as ControlContext;
 use crate::proc_mgr::StartInfo;
 
-#[derive(Args, Debug)]
+#[derive(Args, Serialize, Deserialize, Debug)]
 pub struct RunSubcommand {
     #[arg(required = true, last = true)]
     cmd_line: Vec<String>,
 }
 
 impl RunSubcommand {
-    pub async fn run(self, ctx: &ControlContext, stream: &mut UnixStream) -> Result<()> {
+    pub async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+        self,
+        ctx: &ControlContext,
+        stream: &mut S,
+    ) -> Result<()> {
         let (program, args) = {
             let mut cmd_line = self.cmd_line;
             let args = cmd_line.split_off(1);

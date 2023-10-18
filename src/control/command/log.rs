@@ -1,12 +1,12 @@
 use anyhow::Result;
 use clap::Args;
-use tokio::io::AsyncWriteExt;
-use tokio::net::UnixStream;
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use crate::control::Context as ControlContext;
 
-#[derive(Args, Debug)]
+#[derive(Args, Serialize, Deserialize, Debug)]
 pub struct LogSubcommand {
     /// Stream logs of a currently running process with the given pid.
     #[arg(short, long, required = true)]
@@ -14,7 +14,11 @@ pub struct LogSubcommand {
 }
 
 impl LogSubcommand {
-    pub async fn run(self, ctx: &ControlContext, stream: &mut UnixStream) -> Result<()> {
+    pub async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+        self,
+        ctx: &ControlContext,
+        stream: &mut S,
+    ) -> Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let Some(cancel_token) = ctx
             .proc_mgr_handle
@@ -29,13 +33,13 @@ impl LogSubcommand {
 
         let mut peer_closed = false;
         loop {
+            // We don't expect to read any bytes here, so we only use a small
+            // buffer to check if the remote peer is closed.
+            let mut buf = [0; 1];
             let Some(contents) = tokio::select! {
                 contents = rx.recv() => { contents },
-                _ = stream.readable() => {
-                    let mut buf = [0; 1];
-                    // We don't expect to read any bytes here, so we only use a small
-                    // buffer to check if the remote peer is closed.
-                    if stream.try_read(&mut buf).unwrap_or(0) == 0 {
+                read_res = stream.read(&mut buf) => {
+                    if read_res.unwrap_or(0) == 0 {
                         peer_closed = true;
                         break;
                     }

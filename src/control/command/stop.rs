@@ -1,11 +1,11 @@
 use anyhow::Result;
 use clap::Args;
-use tokio::io::AsyncWriteExt;
-use tokio::net::UnixStream;
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::control::Context as ControlContext;
 
-#[derive(Args, Debug)]
+#[derive(Args, Serialize, Deserialize, Debug)]
 pub struct StopSubcommand {
     /// Stop the process with the given pid.
     #[arg(short, long, required = true)]
@@ -13,7 +13,11 @@ pub struct StopSubcommand {
 }
 
 impl StopSubcommand {
-    pub async fn run(self, ctx: &ControlContext, stream: &mut UnixStream) -> Result<()> {
+    pub async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+        self,
+        ctx: &ControlContext,
+        stream: &mut S,
+    ) -> Result<()> {
         match ctx.proc_mgr_handle.stop_process(self.pid).await {
             Ok(exit_code) => {
                 stream

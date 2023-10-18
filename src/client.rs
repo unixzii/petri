@@ -3,13 +3,14 @@ use std::error::Error as StdError;
 use std::ffi::OsStr;
 use std::io::{self, ErrorKind as IoErrorKind, Write};
 use std::os::unix::prelude::OsStrExt;
-use std::process::{self, Command, Stdio};
+use std::process::{self, Stdio};
 
 use anyhow::Error;
+use clap::Parser;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use crate::control;
+use crate::control::{self, command::Command};
 
 enum ConnectError {
     ServerNotStarted,
@@ -26,10 +27,16 @@ where
 }
 
 pub async fn run_client(args: Vec<String>) {
+    // Parse and serialize the command.
+    let cmd = Command::parse_from(args);
+    let mut cmd_string = serde_json::to_string(&control::cli::IpcRequestPacket { cmd })
+        .expect("failed to serialize the command");
+    cmd_string.push('\n');
+
     let mut server_started_by_us = false;
     let mut retry_count = 0;
     loop {
-        match try_talking_to_server(&args).await {
+        match try_talking_to_server(&cmd_string).await {
             Ok(_) => {
                 return;
             }
@@ -58,7 +65,7 @@ pub async fn run_client(args: Vec<String>) {
     }
 }
 
-async fn try_talking_to_server(args: &Vec<String>) -> Result<(), ConnectError> {
+async fn try_talking_to_server(payload: &str) -> Result<(), ConnectError> {
     let mut stream = match UnixStream::connect(control::env::socket_path()?).await {
         Ok(stream) => stream,
         Err(err) => {
@@ -69,10 +76,8 @@ async fn try_talking_to_server(args: &Vec<String>) -> Result<(), ConnectError> {
         }
     };
 
-    // Serialize and send the args to server.
-    let mut args_str = serde_json::to_string(args)?;
-    args_str.push('\n');
-    stream.write_all(args_str.as_bytes()).await?;
+    // Send the command to server.
+    stream.write_all(payload.as_bytes()).await?;
 
     // Receive all the contents from server until EOF.
     let mut buf = Vec::with_capacity(1024);
@@ -114,7 +119,7 @@ fn start_server_as_daemon() {
 
     // Daemonization is done. Now we can execute the program in server
     // mode, and exit the current process.
-    Command::new(current_exe)
+    process::Command::new(current_exe)
         .arg("--server")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
