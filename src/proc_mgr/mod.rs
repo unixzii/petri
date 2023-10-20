@@ -4,11 +4,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use indexmap::IndexMap;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
 
 use crate::util::subscriber_list;
-pub use process::{Process, StartInfo};
+pub use process::{OutputSubscriber, Process, StartInfo};
 
 pub struct ProcessManager {
     handle: Handle,
@@ -68,8 +67,8 @@ impl Handle {
     pub async fn attach_output_channel(
         &self,
         id: u32,
-        sender: UnboundedSender<Vec<u8>>,
-    ) -> Option<subscriber_list::CancellationToken<UnboundedSender<Vec<u8>>>> {
+        sender: OutputSubscriber,
+    ) -> Option<subscriber_list::CancellationToken<OutputSubscriber>> {
         let processes = self.inner.processes.read().await;
         let Some(process) = processes.get(&id) else {
             return None;

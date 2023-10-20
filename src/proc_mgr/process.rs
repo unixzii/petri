@@ -11,7 +11,7 @@ use tokio::task;
 
 use super::Inner as ProcessManagerInner;
 use crate::util::subscriber_list::{self, SubscriberList};
-use crate::util::{BufList, VecExt};
+use crate::util::LogBuffer;
 
 pub struct StartInfo {
     pub program: String,
@@ -30,13 +30,15 @@ enum State {
     Placeholder,
 }
 
+pub type OutputSubscriber = UnboundedSender<Arc<[u8]>>;
+
 struct Inner {
     id: u32,
     state: Mutex<State>,
     manager_inner: Weak<ProcessManagerInner>,
 
-    output_buf_list: RwLock<BufList>,
-    output_subscribers: SubscriberList<UnboundedSender<Vec<u8>>>,
+    output_buf: RwLock<LogBuffer>,
+    output_subscribers: SubscriberList<OutputSubscriber>,
 }
 
 impl Process {
@@ -73,7 +75,7 @@ impl Process {
             id,
             state: Mutex::new(State::Running(kill_signal_tx, exit_code_rx)),
             manager_inner: Arc::downgrade(manager_inner),
-            output_buf_list: Default::default(),
+            output_buf: Default::default(),
             output_subscribers: Default::default(),
         });
         inner.monit_process(stdout, stderr, child, kill_signal_rx, exit_code_tx);
@@ -128,23 +130,24 @@ impl Process {
 
     pub async fn attach_output_channel(
         &self,
-        sender: UnboundedSender<Vec<u8>>,
-    ) -> subscriber_list::CancellationToken<UnboundedSender<Vec<u8>>> {
-        let output_buf_list = self.inner.output_buf_list.read().await;
+        sender: OutputSubscriber,
+    ) -> subscriber_list::CancellationToken<OutputSubscriber> {
+        let output_buf = self.inner.output_buf.read().await;
 
-        let cached_contents = output_buf_list.peek();
-        if !cached_contents.is_empty() {
-            _ = sender.send(cached_contents);
+        let mut cached_history_buf = Vec::with_capacity(output_buf.len());
+        output_buf.with_buffers(|buf| {
+            cached_history_buf.extend(buf);
+        });
+        if !cached_history_buf.is_empty() {
+            _ = sender.send(Arc::from(cached_history_buf.into_boxed_slice()));
         }
 
         let token = self.inner.output_subscribers.subscribe(sender);
-        drop(output_buf_list);
+        drop(output_buf);
 
         token
     }
 }
-
-const STDIO_BUF_SIZE: usize = 1024;
 
 impl Inner {
     fn monit_process(
@@ -195,21 +198,16 @@ impl Inner {
     fn read_stdio<R: AsyncRead + Send + Unpin + 'static>(self: &Arc<Self>, mut pipe: R) {
         let self_clone = Arc::clone(self);
         task::spawn(async move {
-            let mut buf = Vec::with_capacity(STDIO_BUF_SIZE);
+            let mut buf = vec![0; 1024];
             loop {
-                match pipe.read_buf(&mut buf).await {
+                match pipe.read(&mut buf).await {
                     Ok(cnt) => {
                         if cnt == 0 {
                             // No more data to read.
                             break;
                         }
 
-                        if buf.len() >= STDIO_BUF_SIZE {
-                            self_clone.write_output(buf.clone()).await;
-                            buf.clear();
-                        } else if let Some(buf) = buf.split_off_with(|b| *b == b'\n') {
-                            self_clone.write_output(buf).await;
-                        }
+                        self_clone.write_output(&buf[0..cnt]).await;
                     }
                     Err(err) => {
                         if err.kind() != IoErrorKind::Interrupted {
@@ -220,21 +218,23 @@ impl Inner {
             }
 
             if !buf.is_empty() {
-                self_clone.write_output(buf).await;
+                self_clone.write_output(&buf).await;
             }
         });
     }
 
-    async fn write_output(self: &Arc<Self>, buf: Vec<u8>) {
-        let mut output_buf_list = self.output_buf_list.write().await;
-        output_buf_list.push(buf.clone());
+    async fn write_output(self: &Arc<Self>, buf: &[u8]) {
+        let mut output_buf = self.output_buf.write().await;
+        output_buf.append(buf);
 
+        let shared_buf = Arc::from(buf);
         self.output_subscribers.for_each(|sender| {
-            _ = sender.send(buf.clone());
+            _ = sender.send(Arc::clone(&shared_buf));
         });
 
-        // Use `output_buf_list` lock as a barrier to make sure that we
-        // will not send data in the middle of a subscribing procedure.
-        drop(output_buf_list);
+        // Use `output_buf` lock as a synchronization barrier to make sure that
+        // we will not send data while an output subscriber is being added to
+        // the subscriber list.
+        drop(output_buf);
     }
 }

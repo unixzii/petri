@@ -1,6 +1,4 @@
-mod buf_list;
+mod log_buf;
 pub mod subscriber_list;
-mod vec_ext;
 
-pub use buf_list::BufList;
-pub use vec_ext::VecExt;
+pub use log_buf::LogBuffer;
