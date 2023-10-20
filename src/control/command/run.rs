@@ -1,9 +1,8 @@
 use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use crate::control::Context as ControlContext;
+use crate::control::{Context as ControlContext, IpcChannel};
 use crate::proc_mgr::StartInfo;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
@@ -13,10 +12,10 @@ pub struct RunSubcommand {
 }
 
 impl RunSubcommand {
-    pub async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(super) async fn run<C: IpcChannel>(
         self,
         ctx: &ControlContext,
-        stream: &mut S,
+        channel: &mut C,
     ) -> Result<()> {
         let (program, args) = {
             let mut cmd_line = self.cmd_line;
@@ -25,7 +24,7 @@ impl RunSubcommand {
         };
 
         let Some(program) = program.into_iter().next() else {
-            stream.write_all(b"program must be specified").await?;
+            channel.write_line("program must be specified").await?;
             return Err(anyhow!("no program is specified").context("run"));
         };
 
@@ -39,15 +38,15 @@ impl RunSubcommand {
         {
             Ok(id) => id,
             Err(err) => {
-                stream
-                    .write_all(b"failed to start the process (maybe it exited too early)")
+                channel
+                    .write_line("failed to start the process (maybe it exited too early)")
                     .await?;
                 return Err(err.context("run"));
             }
         };
 
-        stream
-            .write_all(format!("process started (pid: {pid})").as_bytes())
+        channel
+            .write_line(&format!("process started (pid: {pid})"))
             .await?;
 
         Ok(())

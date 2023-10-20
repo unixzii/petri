@@ -1,9 +1,8 @@
 use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use crate::control::Context as ControlContext;
+use crate::control::{Context as ControlContext, IpcChannel};
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct StopSubcommand {
@@ -13,20 +12,20 @@ pub struct StopSubcommand {
 }
 
 impl StopSubcommand {
-    pub async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(super) async fn run<C: IpcChannel>(
         self,
         ctx: &ControlContext,
-        stream: &mut S,
+        channel: &mut C,
     ) -> Result<()> {
         match ctx.proc_mgr_handle.stop_process(self.pid).await {
             Ok(exit_code) => {
-                stream
-                    .write_all(format!("process stopped with exit code {exit_code}").as_bytes())
+                channel
+                    .write_line(&format!("process stopped with exit code {exit_code}"))
                     .await?;
             }
             Err(err) => {
-                stream
-                    .write_all(b"failed to stop the process (is it running?)")
+                channel
+                    .write_line("failed to stop the process (is it running?)")
                     .await?;
                 return Err(err.context("stop"));
             }

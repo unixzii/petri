@@ -5,11 +5,8 @@ mod stop;
 use anyhow::Result;
 use clap::{ColorChoice, Parser};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncRead;
-use tokio::io::AsyncWrite;
-use tokio::io::AsyncWriteExt;
 
-use super::Context as ControlContext;
+use super::{Context as ControlContext, IpcChannel};
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[command(name = "petri")]
@@ -27,19 +24,19 @@ pub enum Command {
 }
 
 impl Command {
-    pub async fn run<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(super) async fn run<C: IpcChannel>(
         self,
         ctx: &ControlContext,
-        stream: &mut S,
+        channel: &mut C,
     ) -> Result<()> {
         match self {
-            Command::Run(subcommand) => subcommand.run(ctx, stream).await?,
-            Command::Stop(subcommand) => subcommand.run(ctx, stream).await?,
-            Command::Log(subcommand) => subcommand.run(ctx, stream).await?,
+            Command::Run(subcommand) => subcommand.run(ctx, channel).await?,
+            Command::Stop(subcommand) => subcommand.run(ctx, channel).await?,
+            Command::Log(subcommand) => subcommand.run(ctx, channel).await?,
             Command::StopServer => {
                 _ = ctx.shutdown_request.send(true);
-                stream
-                    .write_all(b"requested the server to shutdown")
+                channel
+                    .write_line("requested the server to shutdown")
                     .await?;
             }
         }

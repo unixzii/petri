@@ -5,6 +5,8 @@ pub mod env;
 use std::sync::Arc;
 
 use anyhow::Result;
+use async_trait::async_trait;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, Result as TokioIoResult};
 use tokio::sync::watch;
 
 use crate::proc_mgr::Handle as ProcessManagerHandle;
@@ -14,7 +16,26 @@ pub struct Control {
     cli: CliControl,
 }
 
-pub(crate) struct Context {
+#[derive(PartialEq, Eq, Debug)]
+enum IpcChannelFlavor {
+    Cli,
+}
+
+#[async_trait]
+trait IpcChannel: AsyncRead + AsyncWrite + Send + Unpin {
+    fn flavor(&self) -> IpcChannelFlavor;
+
+    async fn write_line(&mut self, s: &str) -> TokioIoResult<()> {
+        if self.flavor() != IpcChannelFlavor::Cli {
+            return Ok(());
+        }
+        self.write_all(s.as_bytes()).await?;
+        self.write_all(&[b'\n']).await?;
+        Ok(())
+    }
+}
+
+struct Context {
     pub proc_mgr_handle: ProcessManagerHandle,
     pub shutdown_request: watch::Sender<bool>,
 }

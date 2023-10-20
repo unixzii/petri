@@ -10,14 +10,14 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{oneshot, RwLock};
 use tokio::task;
 
-use super::{command, env, Context};
+use super::{command, env, Context, IpcChannel, IpcChannelFlavor};
 
 #[derive(Serialize, Deserialize)]
 pub struct IpcRequestPacket {
     pub cmd: command::Command,
 }
 
-pub struct CliControl {
+pub(super) struct CliControl {
     shutdown_signal: oneshot::Sender<()>,
     shutdown_result: oneshot::Receiver<()>,
 }
@@ -132,5 +132,11 @@ impl Inner {
     async fn run_command(self: &Arc<Self>, payload: &str, mut stream: UnixStream) -> Result<()> {
         let request: IpcRequestPacket = serde_json::from_str(payload)?;
         request.cmd.run(&self.ctx, &mut stream).await
+    }
+}
+
+impl IpcChannel for UnixStream {
+    fn flavor(&self) -> IpcChannelFlavor {
+        IpcChannelFlavor::Cli
     }
 }
