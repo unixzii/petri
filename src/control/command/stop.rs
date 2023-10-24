@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
+use super::{CommandClient, ResponseHandler};
 use crate::control::{Context as ControlContext, IpcChannel};
 
 #[derive(Args, Serialize, Deserialize, Debug)]
@@ -32,5 +33,11 @@ impl StopSubcommand {
         }
 
         Ok(())
+    }
+}
+
+impl CommandClient for StopSubcommand {
+    fn handler(&self) -> Option<Box<dyn ResponseHandler>> {
+        None
     }
 }

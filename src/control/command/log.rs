@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+use super::{CommandClient, ResponseHandler};
 use crate::control::{Context as ControlContext, IpcChannel};
 
 #[derive(Args, Serialize, Deserialize, Debug)]
@@ -75,5 +76,11 @@ impl LogSubcommand {
         }
 
         Ok(())
+    }
+}
+
+impl CommandClient for LogSubcommand {
+    fn handler(&self) -> Option<Box<dyn ResponseHandler>> {
+        None
     }
 }

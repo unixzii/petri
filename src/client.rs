@@ -10,7 +10,8 @@ use clap::Parser;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use crate::control::{self, command::Command};
+use crate::control;
+use crate::control::command::{Command, CommandClient};
 
 enum ConnectError {
     ServerNotStarted,
@@ -29,14 +30,14 @@ where
 pub async fn run_client(args: Vec<String>) {
     // Parse and serialize the command.
     let cmd = Command::parse_from(args);
-    let mut cmd_string = serde_json::to_string(&control::cli::IpcRequestPacket { cmd })
+    let mut cmd_string = serde_json::to_string(&control::cli::IpcRequestPacket { cmd: &cmd })
         .expect("failed to serialize the command");
     cmd_string.push('\n');
 
     let mut server_started_by_us = false;
     let mut retry_count = 0;
     loop {
-        match try_talking_to_server(&cmd_string).await {
+        match try_talking_to_server(&cmd_string, &cmd).await {
             Ok(_) => {
                 return;
             }
@@ -65,7 +66,7 @@ pub async fn run_client(args: Vec<String>) {
     }
 }
 
-async fn try_talking_to_server(payload: &str) -> Result<(), ConnectError> {
+async fn try_talking_to_server(payload: &str, cmd: &dyn CommandClient) -> Result<(), ConnectError> {
     let mut stream = match UnixStream::connect(control::env::socket_path()?).await {
         Ok(stream) => stream,
         Err(err) => {
@@ -76,11 +77,30 @@ async fn try_talking_to_server(payload: &str) -> Result<(), ConnectError> {
         }
     };
 
+    let handler = cmd.handler();
+    let is_stream_mode = handler.is_none();
+
     // Send the command to server.
+    if !is_stream_mode {
+        // Request line for JSON-mode starts with a '>' character.
+        stream.write_all(b">").await?;
+    }
     stream.write_all(payload.as_bytes()).await?;
 
-    // Receive all the contents from server until EOF.
+    // Prepare the buffer that can be used both in stream-mode and
+    // JSON-mode.
     let mut buf = Vec::with_capacity(1024);
+
+    if !is_stream_mode {
+        tokio::io::copy(&mut stream, &mut buf).await?;
+        let resp = String::from_utf8(buf)?;
+        if let Err(err) = handler.unwrap().handle_response(&resp).await {
+            return Err(ConnectError::OtherError(err));
+        }
+        return Ok(());
+    }
+
+    // Receive all the contents from server until EOF.
     let mut stdout = io::stdout();
     loop {
         let read_cnt = stream.read_buf(&mut buf).await?;

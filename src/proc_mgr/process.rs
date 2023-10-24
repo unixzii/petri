@@ -19,6 +19,7 @@ pub struct StartInfo {
     pub cwd: String,
 }
 
+#[derive(Clone)]
 pub struct Process {
     inner: Arc<Inner>,
 }
@@ -34,8 +35,12 @@ pub type OutputSubscriber = UnboundedSender<Arc<[u8]>>;
 
 struct Inner {
     id: u32,
-    state: Mutex<State>,
+    cmd: String,
+
+    /// The process manager that owns this process.
     manager_inner: Weak<ProcessManagerInner>,
+
+    state: Mutex<State>,
 
     output_buf: RwLock<LogBuffer>,
     output_subscribers: SubscriberList<OutputSubscriber>,
@@ -46,10 +51,15 @@ impl Process {
         start_info: &StartInfo,
         manager_inner: &Arc<ProcessManagerInner>,
     ) -> Result<Self> {
+        let mut cmd_string = start_info.program.clone();
         let mut command = Command::new(&start_info.program);
 
         if let Some(args) = &start_info.args {
             command.args(args);
+            for arg in args {
+                cmd_string.push(' ');
+                cmd_string.push_str(arg);
+            }
         }
 
         let mut child = command
@@ -73,6 +83,7 @@ impl Process {
         let (exit_code_tx, exit_code_rx) = watch::channel(None);
         let inner = Arc::new(Inner {
             id,
+            cmd: cmd_string,
             state: Mutex::new(State::Running(kill_signal_tx, exit_code_rx)),
             manager_inner: Arc::downgrade(manager_inner),
             output_buf: Default::default(),
@@ -85,6 +96,10 @@ impl Process {
 
     pub fn id(&self) -> u32 {
         self.inner.id
+    }
+
+    pub fn cmd(&self) -> &str {
+        &self.inner.cmd
     }
 
     pub async fn kill(&self) -> i32 {

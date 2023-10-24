@@ -64,6 +64,11 @@ impl Handle {
         Ok(process.kill().await)
     }
 
+    pub async fn processes(&self) -> Vec<Process> {
+        let processes = self.inner.processes.read().await;
+        processes.values().cloned().collect()
+    }
+
     pub async fn attach_output_channel(
         &self,
         id: u32,
