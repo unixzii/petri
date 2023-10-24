@@ -2,6 +2,7 @@ mod log;
 mod ps;
 mod run;
 mod stop;
+mod stop_server;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -24,7 +25,19 @@ pub enum Command {
     /// List processes.
     Ps(ps::PsSubcommand),
     /// Request the server to stop.
-    StopServer,
+    StopServer(stop_server::StopServerSubcommand),
+}
+
+macro_rules! dispatch_command {
+    ($c_var:ident, $s_var:ident => $handler:expr) => {
+        match $c_var {
+            $crate::control::command::Command::Run($s_var) => $handler,
+            $crate::control::command::Command::Stop($s_var) => $handler,
+            $crate::control::command::Command::Log($s_var) => $handler,
+            $crate::control::command::Command::Ps($s_var) => $handler,
+            $crate::control::command::Command::StopServer($s_var) => $handler,
+        }
+    };
 }
 
 /// Trait that specifies how the control client handles a command.
@@ -48,18 +61,7 @@ impl Command {
         ctx: &ControlContext,
         channel: &mut C,
     ) -> Result<()> {
-        match self {
-            Command::Run(subcommand) => subcommand.run(ctx, channel).await?,
-            Command::Stop(subcommand) => subcommand.run(ctx, channel).await?,
-            Command::Log(subcommand) => subcommand.run(ctx, channel).await?,
-            Command::Ps(subcommand) => subcommand.run(ctx, channel).await?,
-            Command::StopServer => {
-                _ = ctx.shutdown_request.send(true);
-                channel
-                    .write_line("requested the server to shutdown")
-                    .await?;
-            }
-        }
+        dispatch_command!(self, subcommand => subcommand.run(ctx, channel).await?);
 
         Ok(())
     }
@@ -67,12 +69,6 @@ impl Command {
 
 impl CommandClient for Command {
     fn handler(&self) -> Option<Box<dyn ResponseHandler>> {
-        match self {
-            Command::Run(subcommand) => subcommand.handler(),
-            Command::Stop(subcommand) => subcommand.handler(),
-            Command::Log(subcommand) => subcommand.handler(),
-            Command::Ps(subcommand) => subcommand.handler(),
-            Command::StopServer => None,
-        }
+        dispatch_command!(self, subcommand => subcommand.handler())
     }
 }
