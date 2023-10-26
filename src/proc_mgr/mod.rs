@@ -39,7 +39,7 @@ impl ProcessManager {
     pub async fn shutdown(&self) {
         let processes = self.handle.inner.processes.read().await;
         for process in processes.values() {
-            println!("killing process {}...", process.id());
+            info!("killing process {}...", process.id());
             process.kill().await;
         }
     }
@@ -51,6 +51,8 @@ impl Handle {
 
         let id = process.id();
         self.inner.processes.write().await.insert(id, process);
+
+        info!("process `{}` started (pid: {id})", start_info.program);
 
         Ok(id)
     }
@@ -84,7 +86,7 @@ impl Handle {
 
 impl Inner {
     async fn handle_process_exit(&self, id: u32, exit_code: i32) {
-        println!("process {id} exit with code {exit_code}");
+        info!("process {id} exit with code {exit_code}");
         self.processes.write().await.remove(&id);
     }
 }

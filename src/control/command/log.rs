@@ -44,7 +44,7 @@ impl LogSubcommand {
                         peer_closed = true;
                         break;
                     }
-                    println!("unexpected byte received: {}", buf[0]);
+                    warn!("unexpected byte received: {}", buf[0]);
                     continue;
                 }
             } else {
@@ -64,12 +64,12 @@ impl LogSubcommand {
         drop(cancel_token);
 
         if peer_closed {
-            println!(
+            debug!(
                 "ended streaming logs from process {} because the peer is closed",
                 self.pid
             );
         } else {
-            println!(
+            debug!(
                 "ended streaming logs from process {} because it exited",
                 self.pid
             );

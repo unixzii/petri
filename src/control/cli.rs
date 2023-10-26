@@ -106,12 +106,12 @@ impl Inner {
         loop {
             match listener.accept().await {
                 Ok((stream, addr)) => {
-                    println!("new connection from: {:?}", addr);
+                    debug!("new connection from: {:?}", addr);
                     self.serve_connection(stream).await;
                 }
                 Err(e) => {
                     // TODO: is it ok to continue accepting new connections?
-                    println!("failed to accept new connection: {}", e);
+                    error!("failed to accept new connection: {}", e);
                     continue;
                 }
             }
@@ -142,10 +142,10 @@ impl Inner {
                     .reunite(write_half)
                     .expect("should reunite into stream");
                 if let Err(err) = inner.run_command(&line, flavor, stream).await {
-                    println!("failed to run command: {:?}", err);
+                    error!("failed to run command: {:?}", err);
                 }
             } else {
-                println!("failed to read from the stream");
+                error!("failed to read from the stream");
             }
 
             inner.pairs.write().await.remove(&id);
