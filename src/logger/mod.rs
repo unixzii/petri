@@ -1,5 +1,5 @@
 mod sink_thread;
-mod writers;
+pub mod writers;
 
 use std::env;
 use std::path::Path;

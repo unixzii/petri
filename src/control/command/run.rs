@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
@@ -8,6 +10,9 @@ use crate::proc_mgr::StartInfo;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct RunSubcommand {
+    /// Redirect stdout & stderr to log files in the given path.
+    #[arg(short)]
+    log_path: Option<PathBuf>,
     #[arg(required = true, last = true)]
     cmd_line: Vec<String>,
 }
@@ -34,7 +39,12 @@ impl RunSubcommand {
 
         let pid = match ctx
             .proc_mgr_handle
-            .add_process(StartInfo { program, args, cwd })
+            .add_process(StartInfo {
+                program,
+                args,
+                cwd,
+                log_path: self.log_path,
+            })
             .await
         {
             Ok(id) => id,

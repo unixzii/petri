@@ -1,4 +1,5 @@
-use std::io::ErrorKind as IoErrorKind;
+use std::io::{ErrorKind as IoErrorKind, Write};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Weak};
 
@@ -10,6 +11,7 @@ use tokio::sync::{oneshot, watch, Mutex, RwLock};
 use tokio::task;
 
 use super::Inner as ProcessManagerInner;
+use crate::logger::writers::file_writer::{FilePathBuilder, FileWriter};
 use crate::util::subscriber_list::{self, SubscriberList};
 use crate::util::LogBuffer;
 
@@ -17,6 +19,7 @@ pub struct StartInfo {
     pub program: String,
     pub args: Option<Vec<String>>,
     pub cwd: String,
+    pub log_path: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -44,6 +47,7 @@ struct Inner {
 
     output_buf: RwLock<LogBuffer>,
     output_subscribers: SubscriberList<OutputSubscriber>,
+    output_file_writer: Option<Mutex<FileWriter>>,
 }
 
 impl Process {
@@ -79,6 +83,18 @@ impl Process {
             return Err(anyhow!("cannot get stderr pipe"));
         };
 
+        let log_file_writer = start_info.log_path.as_ref().and_then(|p| {
+            let builder =
+                FilePathBuilder::new(p, &format!("{}-{}", &start_info.program, id), "log");
+            match FileWriter::new(builder) {
+                Ok(file_writer) => Some(Mutex::new(file_writer)),
+                Err(err) => {
+                    error!("failed to open file writer for process logging: {err:?}");
+                    None
+                }
+            }
+        });
+
         let (kill_signal_tx, kill_signal_rx) = oneshot::channel();
         let (exit_code_tx, exit_code_rx) = watch::channel(None);
         let inner = Arc::new(Inner {
@@ -88,6 +104,7 @@ impl Process {
             manager_inner: Arc::downgrade(manager_inner),
             output_buf: Default::default(),
             output_subscribers: Default::default(),
+            output_file_writer: log_file_writer,
         });
         inner.monit_process(stdout, stderr, child, kill_signal_rx, exit_code_tx);
 
@@ -239,6 +256,11 @@ impl Inner {
     }
 
     async fn write_output(self: &Arc<Self>, buf: &[u8]) {
+        if let Some(file_writer) = self.output_file_writer.as_ref() {
+            let mut file_writer = file_writer.lock().await;
+            _ = file_writer.write_all(buf);
+        }
+
         let mut output_buf = self.output_buf.write().await;
         output_buf.append(buf);
 
