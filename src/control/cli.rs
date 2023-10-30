@@ -20,11 +20,15 @@ use super::{command, env, Context, IpcChannel, IpcChannelFlavor};
 #[derive(Serialize, Deserialize)]
 pub struct OwnedIpcRequestPacket {
     pub cmd: command::Command,
+    pub cwd: String,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Serialize)]
 pub struct IpcRequestPacket<'c> {
     pub cmd: &'c command::Command,
+    pub cwd: String,
+    pub env: HashMap<String, String>,
 }
 
 pub(super) struct CliControl {
@@ -160,7 +164,18 @@ impl Inner {
     ) -> Result<()> {
         let mut stream_wrapper = UnixStreamWrapper { flavor, stream };
         let request: OwnedIpcRequestPacket = serde_json::from_str(payload)?;
-        request.cmd.run(&self.ctx, &mut stream_wrapper).await
+        let cmd = request.cmd;
+
+        let client_env = ClientEnv {
+            cwd: request.cwd,
+            env: request.env,
+        };
+
+        CLIENT_ENV
+            .scope(client_env, async move {
+                cmd.run(&self.ctx, &mut stream_wrapper).await
+            })
+            .await
     }
 }
 
@@ -206,4 +221,26 @@ impl IpcChannel for UnixStreamWrapper {
     fn flavor(&self) -> IpcChannelFlavor {
         self.flavor
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientEnv {
+    cwd: String,
+    env: HashMap<String, String>,
+}
+
+impl ClientEnv {
+    #[inline(always)]
+    pub fn cwd(&self) -> &str {
+        &self.cwd
+    }
+
+    #[inline(always)]
+    pub fn env(&self) -> &HashMap<String, String> {
+        &self.env
+    }
+}
+
+tokio::task_local! {
+    pub static CLIENT_ENV: ClientEnv;
 }

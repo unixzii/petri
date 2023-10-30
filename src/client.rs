@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::error::Error as StdError;
 use std::ffi::OsStr;
@@ -28,10 +29,34 @@ where
 }
 
 pub async fn run_client(args: Vec<String>) {
+    // Collect execution environment of the client.
+    let Some(cwd) = env::current_dir()
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+    else {
+        println!("current dir is invalid");
+        return;
+    };
+    let env_vars: HashMap<_, _> = env::vars_os()
+        .filter_map(|entry| {
+            let Some(key) = entry.0.to_str() else {
+                return None;
+            };
+            let Some(value) = entry.1.to_str() else {
+                return None;
+            };
+            Some((key.to_string(), value.to_string()))
+        })
+        .collect();
+
     // Parse and serialize the command.
     let cmd = Command::parse_from(args);
-    let mut cmd_string = serde_json::to_string(&control::cli::IpcRequestPacket { cmd: &cmd })
-        .expect("failed to serialize the command");
+    let mut cmd_string = serde_json::to_string(&control::cli::IpcRequestPacket {
+        cmd: &cmd,
+        cwd,
+        env: env_vars,
+    })
+    .expect("failed to serialize the command");
     cmd_string.push('\n');
 
     let mut server_started_by_us = false;

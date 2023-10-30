@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{ErrorKind as IoErrorKind, Write};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -19,6 +20,7 @@ pub struct StartInfo {
     pub program: String,
     pub args: Option<Vec<String>>,
     pub cwd: String,
+    pub env: HashMap<String, String>,
     pub log_path: Option<PathBuf>,
 }
 
@@ -68,6 +70,8 @@ impl Process {
 
         let mut child = command
             .current_dir(&start_info.cwd)
+            .env_clear()
+            .envs(&start_info.env)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;

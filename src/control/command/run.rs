@@ -5,6 +5,7 @@ use clap::Args;
 use serde::{Deserialize, Serialize};
 
 use super::{CommandClient, ResponseHandler};
+use crate::control::cli::CLIENT_ENV;
 use crate::control::{Context as ControlContext, IpcChannel};
 use crate::proc_mgr::StartInfo;
 
@@ -34,19 +35,19 @@ impl RunSubcommand {
             return Err(anyhow!("no program is specified").context("run"));
         };
 
-        // TODO: get cwd from the calling control process.
-        let cwd = std::env::current_dir()?.to_str().unwrap_or("/").to_string();
+        let (cwd, env_vars) = CLIENT_ENV
+            .try_with(|env| (env.cwd().to_owned(), env.env().clone()))
+            .expect("no `ClientEnv` set in the calling context");
 
-        let pid = match ctx
-            .proc_mgr_handle
-            .add_process(StartInfo {
-                program,
-                args,
-                cwd,
-                log_path: self.log_path,
-            })
-            .await
-        {
+        let start_info = StartInfo {
+            program,
+            args,
+            cwd,
+            env: env_vars,
+            log_path: self.log_path,
+        };
+
+        let pid = match ctx.proc_mgr_handle.add_process(start_info).await {
             Ok(id) => id,
             Err(err) => {
                 channel
