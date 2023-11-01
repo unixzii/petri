@@ -6,15 +6,27 @@ use std::path::Path;
 use std::sync::mpsc;
 
 use sink_thread::{BoxedWriter, SinkThread};
+use writers::file_writer::*;
+use writers::StdWriter;
 
 #[derive(Default)]
 pub struct LoggerBuilder {
-    std_writer: Option<writers::StdWriter>,
+    file_writer: Option<FileWriter>,
+    std_writer: Option<StdWriter>,
 }
 
 impl LoggerBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn enable_file<P>(mut self, path: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        let path_builder = FilePathBuilder::new(path, "petri-server", "log");
+        self.file_writer = FileWriter::new(path_builder).ok();
+        self
     }
 
     #[allow(dead_code)]
@@ -30,6 +42,11 @@ impl LoggerBuilder {
 
     pub fn build(self) -> Logger {
         let mut writers: Vec<BoxedWriter> = vec![];
+
+        if let Some(file_writer) = self.file_writer {
+            let file_writer = Box::new(file_writer);
+            writers.push(file_writer);
+        }
 
         if let Some(std_writer) = self.std_writer {
             let std_writer = Box::new(std_writer);

@@ -1,3 +1,5 @@
+use std::fs;
+
 use anyhow::Result;
 use tokio::sync::watch;
 
@@ -6,16 +8,35 @@ use crate::logger::LoggerBuilder;
 use crate::proc_mgr::ProcessManager;
 
 pub async fn run_server() {
-    let logger = LoggerBuilder::new().enable_stderr().build();
+    configure_logger();
+    if let Err(err) = server_main().await {
+        error!("error occurred while the server is running:\n{err:?}");
+        std::process::abort();
+    }
+}
+
+#[inline(always)]
+fn configure_logger() {
+    let mut logger = LoggerBuilder::new();
+
+    if let Some(home_dir) = home::home_dir() {
+        let mut logs_dir = home_dir;
+        logs_dir.push(".petri");
+        logs_dir.push("logs");
+        if logs_dir.exists() || fs::create_dir_all(&logs_dir).is_ok() {
+            logger = logger.enable_file(logs_dir);
+        }
+    }
+
+    logger = logger.enable_stderr();
+
     if cfg!(debug_assertions) {
         log::set_max_level(log::LevelFilter::Trace);
     } else {
         log::set_max_level(log::LevelFilter::Info);
     }
-    log::set_boxed_logger(Box::new(logger)).expect("failed to init logger");
-
-    // TODO: configure logging.
-    server_main().await.unwrap();
+    let boxed_logger = Box::new(logger.build());
+    log::set_boxed_logger(boxed_logger).expect("failed to init logger");
 }
 
 async fn server_main() -> Result<()> {
