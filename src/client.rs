@@ -8,10 +8,11 @@ use std::process::{self, Stdio};
 
 use anyhow::Error;
 use clap::Parser;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 use crate::control;
+use crate::control::cli::OwnedIpcMessagePacket;
 use crate::control::command::{Command, CommandClient};
 
 enum ConnectError {
@@ -102,38 +103,31 @@ async fn try_talking_to_server(payload: &str, cmd: &dyn CommandClient) -> Result
         }
     };
 
-    let handler = cmd.handler();
-    let is_stream_mode = handler.is_none();
-
     // Send the command to server.
-    if !is_stream_mode {
-        // Request line for JSON-mode starts with a '>' character.
-        stream.write_all(b">").await?;
-    }
     stream.write_all(payload.as_bytes()).await?;
 
-    // Prepare the buffer that can be used both in stream-mode and
-    // JSON-mode.
-    let mut buf = Vec::with_capacity(1024);
-
-    if !is_stream_mode {
-        tokio::io::copy(&mut stream, &mut buf).await?;
-        let resp = String::from_utf8(buf)?;
-        if let Err(err) = handler.unwrap().handle_response(&resp).await {
-            return Err(ConnectError::OtherError(err));
-        }
-        return Ok(());
-    }
+    // Create a buffer reader that can read the stream line by line,
+    // since messages are delimited by newlines in our protocol.
+    let stream_buf_read = BufReader::new(stream);
+    let mut stream_lines = stream_buf_read.lines();
 
     // Receive all the contents from server until EOF.
     let mut stdout = io::stdout();
-    loop {
-        let read_cnt = stream.read_buf(&mut buf).await?;
-        if read_cnt == 0 {
+    while let Some(line) = stream_lines.next_line().await? {
+        let pkt: OwnedIpcMessagePacket<serde_json::Value> = serde_json::from_str(&line)?;
+        if let Some(output) = pkt.to_output() {
+            stdout.write_all(output.as_bytes())?;
+            stdout.flush()?;
+        } else {
+            if let Some(mut handler) = cmd.handler() {
+                handler
+                    .handle_response(pkt)
+                    .await
+                    .map_err(ConnectError::OtherError)?;
+            }
+            // End the program once we received the response packet.
             break;
         }
-        stdout.write_all(&buf[0..read_cnt])?;
-        buf.clear();
     }
 
     Ok(())

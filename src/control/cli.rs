@@ -1,21 +1,17 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io;
-use std::pin::Pin;
-use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
-use std::task::Poll;
 
 use anyhow::Result;
-use pin_project::pin_project;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
+use tokio::io::{self as tokio_io, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{oneshot, RwLock};
 use tokio::task;
 
-use super::{command, env, Context, IpcChannel, IpcChannelFlavor};
+use super::{command, env, Context};
 
 #[derive(Serialize, Deserialize)]
 pub struct OwnedIpcRequestPacket {
@@ -29,6 +25,33 @@ pub struct IpcRequestPacket<'c> {
     pub cmd: &'c command::Command,
     pub cwd: String,
     pub env: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum OwnedIpcMessagePacket<T> {
+    Output(String),
+    Response(T),
+}
+
+impl<T> OwnedIpcMessagePacket<T> {
+    pub fn to_output(&self) -> Option<&str> {
+        match self {
+            OwnedIpcMessagePacket::Output(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+impl OwnedIpcMessagePacket<serde_json::Value> {
+    pub fn into_response<U>(self) -> Option<serde_json::Result<U>>
+    where
+        U: DeserializeOwned + 'static,
+    {
+        match self {
+            OwnedIpcMessagePacket::Response(value) => Some(serde_json::from_value(value)),
+            _ => None,
+        }
+    }
 }
 
 pub(super) struct CliControl {
@@ -45,11 +68,42 @@ struct Inner {
 
 struct ControlPair;
 
-#[pin_project]
-struct UnixStreamWrapper {
-    flavor: IpcChannelFlavor,
-    #[pin]
+pub(super) struct IpcChannel {
     stream: UnixStream,
+}
+
+impl IpcChannel {
+    pub fn stream_mut(&mut self) -> &mut UnixStream {
+        &mut self.stream
+    }
+
+    pub async fn write_response<T>(&mut self, resp: T) -> tokio_io::Result<()>
+    where
+        T: Serialize + Send + Sync + 'static,
+    {
+        let msg = OwnedIpcMessagePacket::Response(resp);
+        self.write_packet(&msg).await
+    }
+
+    pub async fn write_output(&mut self, s: &str) -> tokio_io::Result<()> {
+        let msg = OwnedIpcMessagePacket::<()>::Output(s.to_owned());
+        self.write_packet(&msg).await
+    }
+
+    async fn write_packet<'a, T>(&mut self, pkt: &OwnedIpcMessagePacket<T>) -> tokio_io::Result<()>
+    where
+        T: Serialize + Send + Sync + 'static,
+    {
+        let mut json_string = match serde_json::to_string(pkt) {
+            Ok(s) => s,
+            Err(err) => return Err(tokio_io::Error::new(tokio_io::ErrorKind::Other, err)),
+        };
+        json_string.push('\n');
+
+        self.stream.write_all(json_string.as_bytes()).await?;
+        self.stream.flush().await?;
+        Ok(())
+    }
 }
 
 impl CliControl {
@@ -135,17 +189,11 @@ impl Inner {
 
             let mut line = String::new();
             if reader.read_line(&mut line).await.is_ok() {
-                let flavor = if line.starts_with('>') {
-                    line.remove(0);
-                    IpcChannelFlavor::CliJson
-                } else {
-                    IpcChannelFlavor::CliStdout
-                };
                 let stream = reader
                     .into_inner()
                     .reunite(write_half)
                     .expect("should reunite into stream");
-                if let Err(err) = inner.run_command(&line, flavor, stream).await {
+                if let Err(err) = inner.run_command(&line, stream).await {
                     error!("failed to run command: {:?}", err);
                 }
             } else {
@@ -156,13 +204,8 @@ impl Inner {
         });
     }
 
-    async fn run_command(
-        self: &Arc<Self>,
-        payload: &str,
-        flavor: IpcChannelFlavor,
-        stream: UnixStream,
-    ) -> Result<()> {
-        let mut stream_wrapper = UnixStreamWrapper { flavor, stream };
+    async fn run_command(self: &Arc<Self>, payload: &str, stream: UnixStream) -> Result<()> {
+        let mut ipc_channel = IpcChannel { stream };
         let request: OwnedIpcRequestPacket = serde_json::from_str(payload)?;
         let cmd = request.cmd;
 
@@ -173,53 +216,9 @@ impl Inner {
 
         CLIENT_ENV
             .scope(client_env, async move {
-                cmd.run(&self.ctx, &mut stream_wrapper).await
+                cmd.run(&self.ctx, &mut ipc_channel).await
             })
             .await
-    }
-}
-
-impl AsyncWrite for UnixStreamWrapper {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> Poll<StdResult<usize, io::Error>> {
-        let this = self.project();
-        this.stream.poll_write(cx, buf)
-    }
-
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<StdResult<(), io::Error>> {
-        let this = self.project();
-        this.stream.poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<StdResult<(), io::Error>> {
-        let this = self.project();
-        this.stream.poll_shutdown(cx)
-    }
-}
-
-impl AsyncRead for UnixStreamWrapper {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let this = self.project();
-        this.stream.poll_read(cx, buf)
-    }
-}
-
-impl IpcChannel for UnixStreamWrapper {
-    fn flavor(&self) -> IpcChannelFlavor {
-        self.flavor
     }
 }
 

@@ -2,21 +2,17 @@ use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
-use super::{CommandClient, ResponseHandler};
-use crate::control::{Context as ControlContext, IpcChannel};
+use super::{CommandClient, IpcChannel, ResponseHandler};
+use crate::control::Context as ControlContext;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct StopServerSubcommand;
 
 impl StopServerSubcommand {
-    pub(super) async fn run<C: IpcChannel>(
-        self,
-        ctx: &ControlContext,
-        channel: &mut C,
-    ) -> Result<()> {
+    pub(super) async fn run(self, ctx: &ControlContext, channel: &mut IpcChannel) -> Result<()> {
         _ = ctx.shutdown_request.send(true);
         channel
-            .write_line("requested the server to shutdown")
+            .write_output("requested the server to shutdown\n")
             .await?;
 
         Ok(())

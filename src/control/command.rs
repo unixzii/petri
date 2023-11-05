@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use clap::{ColorChoice, Parser};
 use serde::{Deserialize, Serialize};
 
-use super::{Context as ControlContext, IpcChannel};
+use super::cli::{IpcChannel, OwnedIpcMessagePacket};
+use super::Context as ControlContext;
 
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[command(name = "petri")]
@@ -52,15 +53,14 @@ pub trait CommandClient {
 
 #[async_trait]
 pub trait ResponseHandler {
-    async fn handle_response(&mut self, resp: &str) -> Result<()>;
+    async fn handle_response(
+        &mut self,
+        resp: OwnedIpcMessagePacket<serde_json::Value>,
+    ) -> Result<()>;
 }
 
 impl Command {
-    pub(super) async fn run<C: IpcChannel>(
-        self,
-        ctx: &ControlContext,
-        channel: &mut C,
-    ) -> Result<()> {
+    pub(super) async fn run(self, ctx: &ControlContext, channel: &mut IpcChannel) -> Result<()> {
         dispatch_command!(self, subcommand => subcommand.run(ctx, channel).await?);
 
         Ok(())

@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
-use super::{CommandClient, ResponseHandler};
-use crate::control::{Context as ControlContext, IpcChannel};
+use super::{CommandClient, IpcChannel, ResponseHandler};
+use crate::control::Context as ControlContext;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct StopSubcommand {
@@ -13,20 +13,16 @@ pub struct StopSubcommand {
 }
 
 impl StopSubcommand {
-    pub(super) async fn run<C: IpcChannel>(
-        self,
-        ctx: &ControlContext,
-        channel: &mut C,
-    ) -> Result<()> {
+    pub(super) async fn run(self, ctx: &ControlContext, channel: &mut IpcChannel) -> Result<()> {
         match ctx.proc_mgr_handle.stop_process(self.pid).await {
             Ok(exit_code) => {
                 channel
-                    .write_line(&format!("process stopped with exit code {exit_code}"))
+                    .write_output(&format!("process stopped with exit code {exit_code}\n"))
                     .await?;
             }
             Err(err) => {
                 channel
-                    .write_line("failed to stop the process (is it running?)")
+                    .write_output("failed to stop the process (is it running?)\n")
                     .await?;
                 return Err(err.context("stop"));
             }

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
-use super::{CommandClient, ResponseHandler};
-use crate::control::{Context as ControlContext, IpcChannel};
+use super::{CommandClient, IpcChannel, ResponseHandler};
+use crate::control::Context as ControlContext;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct LogSubcommand {
@@ -15,11 +15,7 @@ pub struct LogSubcommand {
 }
 
 impl LogSubcommand {
-    pub(super) async fn run<C: IpcChannel>(
-        self,
-        ctx: &ControlContext,
-        channel: &mut C,
-    ) -> Result<()> {
+    pub(super) async fn run(self, ctx: &ControlContext, channel: &mut IpcChannel) -> Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let Some(cancel_token) = ctx
             .proc_mgr_handle
@@ -27,7 +23,7 @@ impl LogSubcommand {
             .await
         else {
             channel
-                .write_line("failed to stream logs from the process (is it running?)")
+                .write_output("failed to stream logs from the process (is it running?)\n")
                 .await?;
             return Err(anyhow!("failed to stream logs").context("log"));
         };
@@ -39,7 +35,7 @@ impl LogSubcommand {
             let mut buf = [0; 1];
             let Some(contents) = tokio::select! {
                 contents = rx.recv() => { contents },
-                read_res = channel.read(&mut buf) => {
+                read_res = channel.stream_mut().read(&mut buf) => {
                     if read_res.unwrap_or(0) == 0 {
                         peer_closed = true;
                         break;
@@ -51,11 +47,9 @@ impl LogSubcommand {
                 break;
             };
 
-            if channel.write_all(&contents).await.is_err() {
-                peer_closed = true;
-                break;
-            }
-            if channel.flush().await.is_err() {
+            // TODO: support transferring of raw buffer.
+            let s = String::from_utf8_lossy(&contents);
+            if channel.write_output(&s).await.is_err() {
                 peer_closed = true;
                 break;
             }

@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
-use super::{CommandClient, ResponseHandler};
-use crate::control::{Context as ControlContext, IpcChannel};
+use super::{CommandClient, IpcChannel, OwnedIpcMessagePacket, ResponseHandler};
+use crate::control::Context as ControlContext;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PsResponse {
@@ -21,11 +21,7 @@ pub struct Process {
 pub struct PsSubcommand;
 
 impl PsSubcommand {
-    pub(super) async fn run<C: IpcChannel>(
-        self,
-        ctx: &ControlContext,
-        channel: &mut C,
-    ) -> Result<()> {
+    pub(super) async fn run(self, ctx: &ControlContext, channel: &mut IpcChannel) -> Result<()> {
         let processes = ctx.proc_mgr_handle.processes().await;
         let resp = PsResponse {
             processes: processes
@@ -51,8 +47,11 @@ struct PsResponseHandler;
 
 #[async_trait]
 impl ResponseHandler for PsResponseHandler {
-    async fn handle_response(&mut self, resp: &str) -> Result<()> {
-        let resp: PsResponse = serde_json::from_str(resp)?;
+    async fn handle_response(
+        &mut self,
+        resp: OwnedIpcMessagePacket<serde_json::Value>,
+    ) -> Result<()> {
+        let resp: PsResponse = resp.into_response().expect("expected a response")?;
         let pid_column_width = resp
             .processes
             .iter()

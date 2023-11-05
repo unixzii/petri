@@ -4,9 +4,9 @@ use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 
-use super::{CommandClient, ResponseHandler};
+use super::{CommandClient, IpcChannel, ResponseHandler};
 use crate::control::cli::CLIENT_ENV;
-use crate::control::{Context as ControlContext, IpcChannel};
+use crate::control::Context as ControlContext;
 use crate::proc_mgr::StartInfo;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
@@ -19,11 +19,7 @@ pub struct RunSubcommand {
 }
 
 impl RunSubcommand {
-    pub(super) async fn run<C: IpcChannel>(
-        self,
-        ctx: &ControlContext,
-        channel: &mut C,
-    ) -> Result<()> {
+    pub(super) async fn run(self, ctx: &ControlContext, channel: &mut IpcChannel) -> Result<()> {
         let (program, args) = {
             let mut cmd_line = self.cmd_line;
             let args = cmd_line.split_off(1);
@@ -31,7 +27,7 @@ impl RunSubcommand {
         };
 
         let Some(program) = program.into_iter().next() else {
-            channel.write_line("program must be specified").await?;
+            channel.write_output("program must be specified\n").await?;
             return Err(anyhow!("no program is specified").context("run"));
         };
 
@@ -51,14 +47,14 @@ impl RunSubcommand {
             Ok(id) => id,
             Err(err) => {
                 channel
-                    .write_line("failed to start the process (maybe it exited too early)")
+                    .write_output("failed to start the process (maybe it exited too early)\n")
                     .await?;
                 return Err(err.context("run"));
             }
         };
 
         channel
-            .write_line(&format!("process started (pid: {pid})"))
+            .write_output(&format!("process started (pid: {pid})\n"))
             .await?;
 
         Ok(())
