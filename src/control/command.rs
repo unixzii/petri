@@ -6,16 +6,20 @@ mod stop_server;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use clap::{ColorChoice, Parser};
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 use super::cli::{IpcChannel, OwnedIpcMessagePacket};
 use super::Context as ControlContext;
 
+const AFTER_HELP: &'static str = color_print::cstr!(
+    "Run '<bold>petri help <<command>></bold>' for more information on a specific command."
+);
+
 #[derive(Parser, Serialize, Deserialize, Debug)]
 #[command(name = "petri")]
-#[command(bin_name = "petri")]
-#[command(color = ColorChoice::Always)]
+#[command(about = "A minimalist process manager")]
+#[command(after_help = AFTER_HELP)]
 pub enum Command {
     /// Run an arbitrary command.
     Run(run::RunSubcommand),
