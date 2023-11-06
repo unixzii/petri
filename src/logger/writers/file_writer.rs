@@ -31,10 +31,8 @@ impl FileWriter {
     pub fn try_rotate(&mut self) -> Result<(), Error> {
         // If there is already an active file, we need to rotate the file
         // path first. Otherwise we can create the file directly.
-        if self.active_file.is_some() {
-            if !self.file_path_builder.rotate_if_needed() {
-                return Err(Error::NotRotated);
-            }
+        if self.active_file.is_some() && !self.file_path_builder.rotate_if_needed() {
+            return Err(Error::NotRotated);
         }
 
         let mut last_io_error = None;

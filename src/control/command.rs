@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::cli::{IpcChannel, OwnedIpcMessagePacket};
 use super::Context as ControlContext;
 
-const AFTER_HELP: &'static str = color_print::cstr!(
+const AFTER_HELP: &str = color_print::cstr!(
     "Run '<bold>petri help <<command>></bold>' for more information on a specific command."
 );
 

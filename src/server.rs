@@ -65,10 +65,9 @@ fn configure_panic_handler() {
             .location()
             .expect("current implementation should always return `Some`");
 
-        let message = 'b: {
-            match info.payload().downcast_ref::<&'static str>() {
-                Some(s) => break 'b *s,
-                _ => {}
+        let msg = 'b: {
+            if let Some(s) = info.payload().downcast_ref::<&'static str>() {
+                break 'b *s;
             }
 
             match info.payload().downcast_ref::<String>() {
@@ -78,10 +77,10 @@ fn configure_panic_handler() {
         };
 
         let panicked_thread = thread::current();
-        let thread_name = panicked_thread.name().unwrap_or("<unnamed>");
 
         error!(
-            "thread '{thread_name}' panicked at {location}:\n{message}\n\nStack backtrace:\n{}",
+            "thread '{}' panicked at {location}:\n{msg}\n\nStack backtrace:\n{}",
+            panicked_thread.name().unwrap_or("<unnamed>"),
             backtrace::Backtrace::force_capture()
         );
         ensure_logs_flushed();
