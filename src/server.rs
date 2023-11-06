@@ -9,9 +9,9 @@ use crate::proc_mgr::ProcessManager;
 
 pub async fn run_server() {
     configure_logger();
+    configure_panic_handler();
     if let Err(err) = server_main().await {
-        error!("error occurred while the server is running:\n{err:?}");
-        std::process::abort();
+        panic!("error occurred while the server is running:\n{err:?}");
     }
 }
 
@@ -37,6 +37,48 @@ fn configure_logger() {
     }
     let boxed_logger = Box::new(logger.build());
     log::set_boxed_logger(boxed_logger).expect("failed to init logger");
+}
+
+/// Installs a panic hook to write the panic info to disk.
+///
+/// This is necessary because the default panic handler that `std` provides
+/// will only print the panic info to `stderr`. The server process typically
+/// runs in background and no console is attached, so we need to construct
+/// and write the log in our custom panic handler.
+#[inline(always)]
+fn configure_panic_handler() {
+    use std::backtrace;
+    use std::panic;
+    use std::thread;
+
+    let orig_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .expect("current implementation should always return `Some`");
+
+        let message = 'b: {
+            match info.payload().downcast_ref::<&'static str>() {
+                Some(s) => break 'b *s,
+                _ => {}
+            }
+
+            match info.payload().downcast_ref::<String>() {
+                Some(s) => &s[..],
+                None => "<message is not displayable>",
+            }
+        };
+
+        let panicked_thread = thread::current();
+        let thread_name = panicked_thread.name().unwrap_or("<unnamed>");
+
+        error!(
+            "thread '{thread_name}' panicked at {location}:\n{message}\n\nStack backtrace:\n{}",
+            backtrace::Backtrace::force_capture()
+        );
+
+        orig_hook(info)
+    }));
 }
 
 async fn server_main() -> Result<()> {
