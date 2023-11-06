@@ -75,8 +75,13 @@ impl LoggerBuilder {
     }
 }
 
+enum LoggerOp {
+    Write(String),
+    SyncFlush(mpsc::SyncSender<()>),
+}
+
 pub struct Logger {
-    tx: mpsc::Sender<String>,
+    tx: mpsc::Sender<LoggerOp>,
     exec_name: String,
     pid: u32,
 }
@@ -104,10 +109,15 @@ impl log::Log for Logger {
             record.line().unwrap_or_default(),
         );
 
-        _ = self.tx.send(message);
+        _ = self.tx.send(LoggerOp::Write(message));
     }
 
     fn flush(&self) {
-        // This is no-op intentionally.
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.tx
+            .send(LoggerOp::SyncFlush(tx))
+            .expect("failed to send the flush request");
+
+        rx.recv().expect("expected a response");
     }
 }

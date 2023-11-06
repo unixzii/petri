@@ -13,6 +13,10 @@ pub async fn run_server() {
     if let Err(err) = server_main().await {
         panic!("error occurred while the server is running:\n{err:?}");
     }
+
+    // Logs are written in a background thread. Wait for it to flush all
+    // the pending contents before the process exits.
+    ensure_logs_flushed();
 }
 
 #[inline(always)]
@@ -37,6 +41,10 @@ fn configure_logger() {
     }
     let boxed_logger = Box::new(logger.build());
     log::set_boxed_logger(boxed_logger).expect("failed to init logger");
+}
+
+fn ensure_logs_flushed() {
+    log::logger().flush();
 }
 
 /// Installs a panic hook to write the panic info to disk.
@@ -76,6 +84,7 @@ fn configure_panic_handler() {
             "thread '{thread_name}' panicked at {location}:\n{message}\n\nStack backtrace:\n{}",
             backtrace::Backtrace::force_capture()
         );
+        ensure_logs_flushed();
 
         orig_hook(info)
     }));
