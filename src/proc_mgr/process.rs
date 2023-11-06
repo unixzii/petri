@@ -33,7 +33,10 @@ enum State {
     Running(oneshot::Sender<()>, watch::Receiver<Option<i32>>),
     Terminating(watch::Receiver<Option<i32>>),
     Terminated(i32),
-    Placeholder,
+
+    /// An intermediate state that will be used when the state
+    /// is being updated.
+    Invalid,
 }
 
 pub type OutputSubscriber = UnboundedSender<Arc<[u8]>>;
@@ -126,8 +129,8 @@ impl Process {
     pub async fn kill(&self) -> i32 {
         let mut state = self.inner.state.lock().await;
 
-        // Take the current state and put a placeholder.
-        let mut current_state = State::Placeholder;
+        // Take the current state and mark the state being updated.
+        let mut current_state = State::Invalid;
         std::mem::swap(&mut *state, &mut current_state);
 
         let mut exit_code_rx = match current_state {
@@ -144,7 +147,7 @@ impl Process {
                 *state = State::Terminated(exit_code);
                 return exit_code;
             }
-            State::Placeholder => {
+            State::Invalid => {
                 unreachable!()
             }
         };
@@ -159,7 +162,6 @@ impl Process {
         let exit_code = exit_code_rx
             .borrow_and_update()
             .expect("the sent value should not be empty");
-        *self.inner.state.lock().await = State::Terminated(exit_code);
 
         exit_code
     }
@@ -222,6 +224,10 @@ impl Inner {
             // TODO: the exit code is simulated for processes that were killed by signals.
             let exit_code = exit_status.code().unwrap_or(1);
             _ = exit_code_tx.send(Some(exit_code));
+
+            let mut state_guard = process_inner.state.lock().await;
+            *state_guard = State::Terminated(exit_code);
+            drop(state_guard);
 
             if let Some(manager_inner) = process_inner.manager_inner.upgrade() {
                 manager_inner
