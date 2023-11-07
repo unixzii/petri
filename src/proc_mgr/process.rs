@@ -3,6 +3,7 @@ use std::io::{ErrorKind as IoErrorKind, Write};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Weak};
+use std::time::Instant;
 
 use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -44,6 +45,7 @@ pub type OutputSubscriber = UnboundedSender<Arc<[u8]>>;
 struct Inner {
     id: u32,
     cmd: String,
+    started_at: Instant,
 
     /// The process manager that owns this process.
     manager_inner: Weak<ProcessManagerInner>,
@@ -79,9 +81,8 @@ impl Process {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let Some(id) = child.id() else {
-            return Err(anyhow!("process exited before being tracked"));
-        };
+        let started_at = Instant::now();
+        let id = child.id().expect("cannot get pid before waiting");
 
         let Some(stdout) = child.stdout.take() else {
             return Err(anyhow!("cannot get stdout pipe"));
@@ -107,6 +108,7 @@ impl Process {
         let inner = Arc::new(Inner {
             id,
             cmd: cmd_string,
+            started_at,
             state: Mutex::new(State::Running(kill_signal_tx, exit_code_rx)),
             manager_inner: Arc::downgrade(manager_inner),
             output_buf: Default::default(),
@@ -124,6 +126,10 @@ impl Process {
 
     pub fn cmd(&self) -> &str {
         &self.inner.cmd
+    }
+
+    pub fn started_at(&self) -> Instant {
+        self.inner.started_at
     }
 
     pub async fn kill(&self) -> i32 {
