@@ -1,0 +1,12 @@
+[package]
+name = "petri-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+petri-utils = { path = "../petri-utils" }
+anyhow = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, features = ["process"] }

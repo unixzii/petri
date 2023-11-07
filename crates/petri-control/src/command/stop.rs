@@ -3,7 +3,7 @@ use clap::Args;
 use serde::{Deserialize, Serialize};
 
 use super::{CommandClient, IpcChannel, ResponseHandler};
-use crate::control::Context as ControlContext;
+use crate::Context as ControlContext;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct StopSubcommand {

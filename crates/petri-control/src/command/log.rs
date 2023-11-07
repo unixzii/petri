@@ -5,7 +5,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
 use super::{CommandClient, IpcChannel, ResponseHandler};
-use crate::control::Context as ControlContext;
+use crate::Context as ControlContext;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct LogSubcommand {

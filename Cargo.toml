@@ -1,6 +1,10 @@
-[package]
-name = "petri"
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
 version = "0.1.0"
+authors = ["Cyandev"]
 edition = "2021"
 
 [profile.dev]
@@ -13,27 +17,15 @@ lto = true
 panic = "abort"
 codegen-units = 1
 
-[dependencies]
+[workspace.dependencies]
 anyhow = "1"
-thiserror = "1"
-chrono = "0.4"
-indexmap = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-log = { version = "0.4", features = ["std"] }
-clap = { version = "4", features = ["derive"] }
-color-print = "0.3"
-home = "0.5"
 async-trait = "0.1"
-bytes = "1"
-futures = "0.3"
-tokio = { version = "1", features = [
-    "rt",
-    "macros",
-    "io-util",
-    "net",
-    "time",
-    "sync",
-    "process",
-] }
-libc = "0.2"
+chrono = "0.4"
+clap = "4"
+color-print = "0.3"
+indexmap = "2"
+log = "0.4"
+serde = "1"
+serde_json = "1"
+tokio = "1"
+thiserror = "1"

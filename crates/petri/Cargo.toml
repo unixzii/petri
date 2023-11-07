@@ -1,0 +1,22 @@
+[package]
+name = "petri"
+description = "A minimalist process manager"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+petri-core = { path = "../petri-core" }
+petri-control = { path = "../petri-control" }
+petri-utils = { path = "../petri-utils" }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+log = { workspace = true, features = ["std"] }
+clap = { workspace = true, features = ["derive"] }
+home = "0.5"
+libc = "0.2"
+
+[dependencies.tokio]
+workspace = true
+features = ["rt", "macros", "io-util", "net", "sync"]

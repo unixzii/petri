@@ -36,11 +36,11 @@ pub enum Command {
 macro_rules! dispatch_command {
     ($c_var:ident, $s_var:ident => $handler:expr) => {
         match $c_var {
-            $crate::control::command::Command::Run($s_var) => $handler,
-            $crate::control::command::Command::Stop($s_var) => $handler,
-            $crate::control::command::Command::Log($s_var) => $handler,
-            $crate::control::command::Command::Ps($s_var) => $handler,
-            $crate::control::command::Command::StopServer($s_var) => $handler,
+            Command::Run($s_var) => $handler,
+            Command::Stop($s_var) => $handler,
+            Command::Log($s_var) => $handler,
+            Command::Ps($s_var) => $handler,
+            Command::StopServer($s_var) => $handler,
         }
     };
 }

@@ -8,12 +8,12 @@ use std::process::{self, Stdio};
 
 use anyhow::Error;
 use clap::Parser;
+use petri_control::cli::{IpcRequestPacket, OwnedIpcMessagePacket};
+use petri_control::command::CommandClient;
+use petri_control::env::socket_path;
+use petri_control::Command;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-
-use crate::control;
-use crate::control::cli::OwnedIpcMessagePacket;
-use crate::control::command::{Command, CommandClient};
 
 enum ConnectError {
     ServerNotStarted,
@@ -52,7 +52,7 @@ pub async fn run_client(args: Vec<String>) {
 
     // Parse and serialize the command.
     let cmd = Command::parse_from(args);
-    let mut cmd_string = serde_json::to_string(&control::cli::IpcRequestPacket {
+    let mut cmd_string = serde_json::to_string(&IpcRequestPacket {
         cmd: &cmd,
         cwd,
         env: env_vars,
@@ -93,7 +93,7 @@ pub async fn run_client(args: Vec<String>) {
 }
 
 async fn try_talking_to_server(payload: &str, cmd: &dyn CommandClient) -> Result<(), ConnectError> {
-    let mut stream = match UnixStream::connect(control::env::socket_path()?).await {
+    let mut stream = match UnixStream::connect(socket_path()?).await {
         Ok(stream) => stream,
         Err(err) => {
             if err.kind() == IoErrorKind::NotFound {

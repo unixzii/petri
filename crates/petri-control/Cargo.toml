@@ -1,0 +1,17 @@
+[package]
+name = "petri-control"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+petri-core = { path = "../petri-core" }
+petri-utils = { path = "../petri-utils" }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+color-print = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }

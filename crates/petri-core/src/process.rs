@@ -2,20 +2,20 @@ use std::collections::HashMap;
 use std::io::{ErrorKind as IoErrorKind, Write};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
+use petri_utils::logger::writers::file_writer::{FilePathBuilder, FileWriter};
+use petri_utils::subscriber_list::{self, SubscriberList};
+use petri_utils::LogBuffer;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{oneshot, watch, Mutex, RwLock};
 use tokio::task;
 
-use super::Inner as ProcessManagerInner;
-use crate::logger::writers::file_writer::{FilePathBuilder, FileWriter};
-use crate::util::subscriber_list::{self, SubscriberList};
-use crate::util::LogBuffer;
+use crate::process_mgr::Handle as ProcessManagerHandle;
 
 pub struct StartInfo {
     pub program: String,
@@ -48,7 +48,7 @@ struct Inner {
     started_at: Instant,
 
     /// The process manager that owns this process.
-    manager_inner: Weak<ProcessManagerInner>,
+    manager_handle: ProcessManagerHandle,
 
     state: Mutex<State>,
 
@@ -58,10 +58,7 @@ struct Inner {
 }
 
 impl Process {
-    pub(super) fn spawn(
-        start_info: &StartInfo,
-        manager_inner: &Arc<ProcessManagerInner>,
-    ) -> Result<Self> {
+    pub(super) fn spawn(start_info: &StartInfo, mgr_handle: &ProcessManagerHandle) -> Result<Self> {
         let mut cmd_string = start_info.program.clone();
         let mut command = Command::new(&start_info.program);
 
@@ -110,7 +107,7 @@ impl Process {
             cmd: cmd_string,
             started_at,
             state: Mutex::new(State::Running(kill_signal_tx, exit_code_rx)),
-            manager_inner: Arc::downgrade(manager_inner),
+            manager_handle: mgr_handle.clone(),
             output_buf: Default::default(),
             output_subscribers: Default::default(),
             output_file_writer: log_file_writer,
@@ -235,11 +232,10 @@ impl Inner {
             *state_guard = State::Terminated(exit_code);
             drop(state_guard);
 
-            if let Some(manager_inner) = process_inner.manager_inner.upgrade() {
-                manager_inner
-                    .handle_process_exit(process_inner.id, exit_code)
-                    .await;
-            }
+            process_inner
+                .manager_handle
+                .handle_process_exit(process_inner.id, exit_code)
+                .await;
         });
     }
 

@@ -1,3 +1,9 @@
+#[macro_use(anyhow)]
+extern crate anyhow;
+
+#[macro_use]
+extern crate log;
+
 pub mod cli;
 pub mod command;
 pub mod env;
@@ -5,10 +11,11 @@ pub mod env;
 use std::sync::Arc;
 
 use anyhow::Result;
+use petri_core::process_mgr::Handle as ProcessManagerHandle;
 use tokio::sync::watch;
 
-use crate::proc_mgr::Handle as ProcessManagerHandle;
 use cli::CliControl;
+pub use command::Command;
 
 pub struct Control {
     cli: CliControl,

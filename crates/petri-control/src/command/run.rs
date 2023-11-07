@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
+use petri_core::process::StartInfo;
 use serde::{Deserialize, Serialize};
 
 use super::{CommandClient, IpcChannel, ResponseHandler};
-use crate::control::cli::CLIENT_ENV;
-use crate::control::Context as ControlContext;
-use crate::proc_mgr::StartInfo;
+use crate::cli::CLIENT_ENV;
+use crate::Context as ControlContext;
 
 #[derive(Args, Serialize, Deserialize, Debug)]
 pub struct RunSubcommand {

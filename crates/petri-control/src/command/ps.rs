@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::Args;
+use petri_utils::time::FormattedUptime;
 use serde::{Deserialize, Serialize};
 
 use super::{CommandClient, IpcChannel, OwnedIpcMessagePacket, ResponseHandler};
-use crate::control::Context as ControlContext;
-use crate::util::time::FormattedUptime;
+use crate::Context as ControlContext;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PsResponse {
