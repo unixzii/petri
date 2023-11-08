@@ -1,15 +1,64 @@
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
-macro_rules! format_unit {
-    ($f:expr, $unit:ident, $str:literal, $plural_str:literal, $round:expr, $v:expr) => {
-        let $unit = $v;
-        if $unit == 1 {
-            return $f.write_fmt(format_args!("1 {}", $str));
+/// Helper macro to generate a function that formats time values with
+/// the specified carry rules.
+macro_rules! define_formatter {
+    (@
+        // Internal state like identifiers of arguments, intermediate
+        // local variables, etc.
+        { $f: ident, $input:ident, $last:expr }
+
+        // Expanded statements that will be pasted as-is.
+        { $($expanded:tt)* } $(,)?
+    ) => {
+        |$f: &mut std::fmt::Formatter<'_>, $input: u64| {
+            $($expanded)*
         }
-        if $unit < $round {
-            return $f.write_fmt(format_args!("{} {}", $unit, $plural_str));
-        }
+    };
+
+    // ===== Normalize =====
+
+    (@
+        { $f: ident, $input:ident, $last:expr }
+        { $($expanded:tt)* }
+
+        // Define a unit that has next units.
+        , $unit:ident($singular:literal, $round:expr) $($rest:tt)*
+    ) => {
+        define_formatter!(@ { $f, $input, $unit / $round } {
+            $($expanded)*
+            let $unit = $last;
+            if $unit == 1 {
+                return $f.write_fmt(format_args!("1 {}", $singular));
+            }
+            if $unit < $round {
+                return $f.write_fmt(format_args!("{} {}", $unit, stringify!($unit)));
+            }
+        } $($rest)*)
+    };
+
+    (@
+        { $f: ident, $input:ident, $last:expr }
+        { $($expanded:tt)* }
+
+        // Define a final unit that doesn't carry to next units.
+        , $unit:ident($singular:literal) $($rest:tt)*
+    ) => {
+        define_formatter!(@ { $f, $input, 0 } {
+            $($expanded)*
+            let $unit = $last;
+            if $unit == 1 {
+                return $f.write_fmt(format_args!("1 {}", $singular));
+            }
+            return $f.write_fmt(format_args!("{} {}", $unit, stringify!($unit)));
+        } $($rest)*)
+    };
+
+    // ==== Entry Point ====
+
+    ($unit:ident $($arg:tt)*) => {
+        define_formatter!(@ { f, input, input } { } , $unit $($arg)*)
     };
 }
 
@@ -44,12 +93,13 @@ impl From<Duration> for FormattedUptime {
 
 impl Display for FormattedUptime {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        format_unit!(f, secs, "second", "seconds", 60, self.0.as_secs());
-        format_unit!(f, mins, "minute", "minutes", 60, secs / 60);
-        format_unit!(f, hours, "hour", "hours", 24, mins / 60);
-        format_unit!(f, days, "day", "days", u64::MAX, hours / 24);
-
-        unreachable!("there is no next time unit after 'day'");
+        let formatter = define_formatter! {
+            seconds("second", 60),
+            minutes("minute", 60),
+            hours("hour", 24),
+            days("day"),
+        };
+        formatter(f, self.0.as_secs())
     }
 }
 
