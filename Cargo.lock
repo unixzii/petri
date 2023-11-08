@@ -401,7 +401,8 @@ dependencies = [
  "libc",
  "log",
  "petri-control",
- "petri-core",
+ "petri-logger",
+ "petri-server",
  "petri-utils",
  "serde",
  "serde_json",
@@ -431,18 +432,35 @@ dependencies = [
  "anyhow",
  "indexmap",
  "log",
+ "petri-logger",
  "petri-utils",
  "tokio",
 ]
 
 [[package]]
-name = "petri-utils"
+name = "petri-logger"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "log",
  "thiserror",
 ]
+
+[[package]]
+name = "petri-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "petri-control",
+ "petri-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "petri-utils"
+version = "0.1.0"
 
 [[package]]
 name = "pin-project-lite"

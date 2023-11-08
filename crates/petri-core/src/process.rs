@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
-use petri_utils::logger::writers::file_writer::{FilePathBuilder, FileWriter};
+use petri_logger::writers::file_writer::{FilePathBuilder, FileWriter};
 use petri_utils::subscriber_list::{self, SubscriberList};
 use petri_utils::LogBuffer;
 use tokio::io::{AsyncRead, AsyncReadExt};

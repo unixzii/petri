@@ -1,0 +1,13 @@
+[package]
+name = "petri-server"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+petri-core = { path = "../petri-core" }
+petri-control = { path = "../petri-control" }
+anyhow = { workspace = true }
+log = { workspace = true }
+pin-project-lite = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }

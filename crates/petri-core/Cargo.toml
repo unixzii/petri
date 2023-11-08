@@ -5,6 +5,7 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
+petri-logger = { path = "../petri-logger" }
 petri-utils = { path = "../petri-utils" }
 anyhow = { workspace = true }
 indexmap = { workspace = true }

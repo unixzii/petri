@@ -6,8 +6,9 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-petri-core = { path = "../petri-core" }
 petri-control = { path = "../petri-control" }
+petri-server = { path = "../petri-server" }
+petri-logger = { path = "../petri-logger" }
 petri-utils = { path = "../petri-utils" }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

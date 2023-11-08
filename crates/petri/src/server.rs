@@ -1,16 +1,19 @@
 use std::fs;
 
-use anyhow::Result;
-use petri_control::Control;
-use petri_core::process_mgr::ProcessManager;
-use petri_utils::logger::LoggerBuilder;
-use tokio::sync::watch;
+use petri_logger::LoggerBuilder;
+use petri_server::Server;
 
 pub async fn run_server() {
     configure_logger();
     configure_panic_handler();
-    if let Err(err) = server_main().await {
-        panic!("error occurred while the server is running:\n{err:?}");
+
+    let res = match Server::new().await {
+        Ok(server) => server.await,
+        Err(err) => panic!("failed to start the server:\n{err:?}"),
+    };
+
+    if let Err(err) = res {
+        panic!("error occurred while waiting the server:\n{err:?}");
     }
 
     // Logs are written in a background thread. Wait for it to flush all
@@ -86,29 +89,4 @@ fn configure_panic_handler() {
 
         orig_hook(info)
     }));
-}
-
-async fn server_main() -> Result<()> {
-    let (shutdown_request_tx, mut shutdown_request_rx) = watch::channel(false);
-    let process_manager = ProcessManager::new();
-    let control = Control::new(process_manager.handle(), shutdown_request_tx)?;
-
-    info!("the server is started!");
-
-    loop {
-        shutdown_request_rx.changed().await?;
-        let is_shutdown_requested = *shutdown_request_rx.borrow_and_update();
-        if is_shutdown_requested {
-            info!("client requested to shutdown the server");
-            break;
-        }
-    }
-
-    info!("the server is shutting down...");
-    control.shutdown().await;
-    process_manager.shutdown().await;
-
-    info!("bye!");
-
-    Ok(())
 }

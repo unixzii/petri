@@ -1,0 +1,10 @@
+[package]
+name = "petri-logger"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
