@@ -11,6 +11,10 @@ impl LogBuffer {
         self.0.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn append(&mut self, buf: &[u8]) {
         let buf_len = buf.len();
         let cap = self.0.capacity();

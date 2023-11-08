@@ -87,8 +87,8 @@ impl ResponseHandler for PsResponseHandler {
             .max(5);
 
         println!(
-            "{:>pid_column_width$}  {:<status_column_width$}   {}",
-            "PID", "STATUS", "CMD"
+            "{:>pid_column_width$}  {:<status_column_width$}   CMD",
+            "PID", "STATUS"
         );
         for row in formatted_rows {
             println!(
