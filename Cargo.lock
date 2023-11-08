@@ -447,6 +447,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "petri-plugin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "petri-server"
 version = "0.1.0"
 dependencies = [

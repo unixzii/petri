@@ -1,0 +1,8 @@
+[package]
+name = "petri-plugin"
+version = "0.1.0"
+authors = ["Cyandev"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
