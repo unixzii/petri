@@ -1,6 +1,8 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, Local};
 use thiserror::Error;
@@ -16,6 +18,8 @@ pub enum Error {
 pub struct FileWriter {
     file_path_builder: FilePathBuilder,
     active_file: Option<File>,
+    needs_rotation: Arc<AtomicBool>,
+    rotation_driver: Option<Box<dyn AnyRotationDriver>>,
 }
 
 impl FileWriter {
@@ -23,9 +27,22 @@ impl FileWriter {
         let mut this = Self {
             file_path_builder,
             active_file: None,
+            needs_rotation: Arc::new(AtomicBool::new(false)),
+            rotation_driver: None,
         };
         this.try_rotate()?;
         Ok(this)
+    }
+
+    pub fn set_rotation_driver<D>(&mut self, mut driver: D)
+    where
+        D: RotationDriver + 'static,
+    {
+        let needs_rotation = Arc::clone(&self.needs_rotation);
+        driver.register(move || {
+            needs_rotation.store(true, AtomicOrdering::Relaxed);
+        });
+        self.rotation_driver = Some(Box::new(driver));
     }
 
     pub fn try_rotate(&mut self) -> Result<(), Error> {
@@ -60,8 +77,25 @@ impl FileWriter {
     }
 }
 
+impl Drop for FileWriter {
+    fn drop(&mut self) {
+        if let Some(driver) = self.rotation_driver.as_mut() {
+            driver.cancel();
+        }
+    }
+}
+
 impl Write for FileWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self
+            .needs_rotation
+            .fetch_and(false, AtomicOrdering::Relaxed)
+        {
+            // We can just ignore the error since it keeps the
+            // active file unchanged if an error occurred.
+            _ = self.try_rotate();
+        }
+
         self.active_file
             .as_mut()
             .expect("expected an active file")
@@ -119,8 +153,8 @@ impl FilePathBuilder {
     fn rotate_if_needed(&mut self) -> bool {
         let now = Local::now();
         if self.last_date.day() == now.day()
-            || self.last_date.month() == now.month()
-            || self.last_date.year() == now.year()
+            && self.last_date.month() == now.month()
+            && self.last_date.year() == now.year()
         {
             return false;
         }
@@ -129,6 +163,36 @@ impl FilePathBuilder {
         self.conflict_counter = 0;
 
         true
+    }
+}
+
+/// A trait for providing capabilities to drive the log rotation.
+pub trait RotationDriver: Send {
+    /// Registers a callback to be invoked when the writer should
+    /// check whether it needs to rotate the log.
+    ///
+    /// The driver will invoke the specified callback periodically
+    /// in an arbitrary thread. The interval between invocations
+    /// depends on the driver implementation.
+    ///
+    /// When the driver is dropped or [`RotateDriver::cancel`] method
+    /// is called, the registered callback will be cancelled.
+    fn register<C>(&mut self, callback: C)
+    where
+        C: Fn() + Send + 'static;
+
+    /// Cancels all the registered callbacks, and none of them will
+    /// be invoked after this method returns.
+    fn cancel(&mut self);
+}
+
+trait AnyRotationDriver: Send {
+    fn cancel(&mut self);
+}
+
+impl<T: RotationDriver> AnyRotationDriver for T {
+    fn cancel(&mut self) {
+        RotationDriver::cancel(self)
     }
 }
 

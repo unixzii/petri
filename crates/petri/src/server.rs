@@ -1,7 +1,11 @@
 use std::fs;
+use std::time::Duration;
 
 use petri_logger::LoggerBuilder;
 use petri_server::Server;
+use tokio::task as tokio_task;
+
+use crate::logging;
 
 pub async fn run_server() {
     configure_logger();
@@ -30,7 +34,12 @@ fn configure_logger() {
         logs_dir.push(".petri");
         logs_dir.push("logs");
         if logs_dir.exists() || fs::create_dir_all(&logs_dir).is_ok() {
-            logger = logger.enable_file(logs_dir);
+            let registry = logging::rotation_callback_registry();
+            let driver = registry.make_driver();
+            logger = logger
+                .enable_file(logs_dir)
+                .enable_file_rotation(driver)
+                .expect("this operation should never fail");
         }
     }
 
@@ -43,6 +52,19 @@ fn configure_logger() {
     }
     let boxed_logger = Box::new(logger.build());
     log::set_boxed_logger(boxed_logger).expect("failed to init logger");
+
+    // Start a timer to drive the log rotation checks.
+    tokio_task::spawn(async {
+        loop {
+            if cfg!(debug_assertions) {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            } else {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+
+            logging::rotation_callback_registry().notify_all();
+        }
+    });
 }
 
 fn ensure_logs_flushed() {

@@ -9,6 +9,9 @@ use sink_thread::{BoxedWriter, SinkThread};
 use writers::file_writer::*;
 use writers::StdWriter;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NoFileWriter;
+
 #[derive(Default)]
 pub struct LoggerBuilder {
     file_writer: Option<FileWriter>,
@@ -27,6 +30,17 @@ impl LoggerBuilder {
         let path_builder = FilePathBuilder::new(path, "petri-server", "log");
         self.file_writer = FileWriter::new(path_builder).ok();
         self
+    }
+
+    pub fn enable_file_rotation<D>(mut self, driver: D) -> Result<Self, NoFileWriter>
+    where
+        D: RotationDriver + 'static,
+    {
+        let Some(file_writer) = self.file_writer.as_mut() else {
+            return Err(NoFileWriter);
+        };
+        file_writer.set_rotation_driver(driver);
+        Ok(self)
     }
 
     #[allow(dead_code)]

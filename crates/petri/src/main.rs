@@ -2,6 +2,7 @@
 extern crate log;
 
 mod client;
+mod logging;
 mod server;
 
 #[tokio::main(flavor = "current_thread")]
