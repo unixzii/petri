@@ -45,6 +45,7 @@ impl FileWriter {
         self.rotation_driver = Some(Box::new(driver));
     }
 
+    #[cold]
     pub fn try_rotate(&mut self) -> Result<(), Error> {
         // If there is already an active file, we need to rotate the file
         // path first. Otherwise we can create the file directly.

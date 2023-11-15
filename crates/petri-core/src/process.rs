@@ -276,8 +276,9 @@ impl Inner {
         let mut output_buf = self.output_buf.write().await;
         output_buf.append(buf);
 
-        let shared_buf = Arc::from(buf);
+        let mut shared_buf = None;
         self.output_subscribers.for_each(|sender| {
+            let shared_buf = shared_buf.get_or_insert_with(|| Arc::from(buf));
             _ = sender.send(Arc::clone(&shared_buf));
         });
 

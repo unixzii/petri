@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use petri_logger::writers::file_writer;
 
 type BoxedCallback = Box<dyn Fn() + Send>;
@@ -18,22 +19,18 @@ impl CallbackRegistry {
     pub fn make_driver(&self) -> RotationDriver {
         let id = self.id_seed.fetch_add(1, AtomicOrdering::Relaxed);
         let callback_list = SharedCallbackList::default();
-        self.lists
-            .lock()
-            .unwrap()
-            .insert(id, Arc::clone(&callback_list));
+        self.lists.lock().insert(id, Arc::clone(&callback_list));
         RotationDriver { id, callback_list }
     }
 
     fn release_driver(&self, driver: &RotationDriver) {
         let id = driver.id;
-        self.lists.lock().unwrap().remove(&id);
+        self.lists.lock().remove(&id);
     }
 
     pub fn notify_all(&self) {
-        let lists = self.lists.lock().unwrap();
-        for list in lists.values() {
-            list.lock().unwrap().iter().for_each(|cb| {
+        for list in self.lists.lock().values() {
+            list.lock().iter().for_each(|cb| {
                 cb();
             });
         }
@@ -56,11 +53,11 @@ impl file_writer::RotationDriver for RotationDriver {
     where
         C: Fn() + Send + 'static,
     {
-        self.callback_list.lock().unwrap().push(Box::new(callback));
+        self.callback_list.lock().push(Box::new(callback));
     }
 
     fn cancel(&mut self) {
-        self.callback_list.lock().unwrap().clear();
+        self.callback_list.lock().clear();
     }
 }
 
