@@ -10,4 +10,5 @@ petri-control = { path = "../petri-control" }
 anyhow = { workspace = true }
 log = { workspace = true }
 pin-project-lite = { workspace = true }
+parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }

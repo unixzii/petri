@@ -11,12 +11,12 @@ pub async fn run_server() {
     configure_logger();
     configure_panic_handler();
 
-    let res = match Server::new().await {
-        Ok(server) => server.await,
+    let server = match Server::new() {
+        Ok(server) => server,
         Err(err) => panic!("failed to start the server:\n{err:?}"),
     };
 
-    if let Err(err) = res {
+    if let Err(err) = server.await {
         panic!("error occurred while waiting the server:\n{err:?}");
     }
 

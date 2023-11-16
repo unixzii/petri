@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::io::{self as tokio_io, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::RwLock;
 use tokio::task;
 
 use super::{command, env, Context};
@@ -52,11 +52,6 @@ impl OwnedIpcMessagePacket<serde_json::Value> {
             _ => None,
         }
     }
-}
-
-pub(super) struct CliControl {
-    shutdown_signal: oneshot::Sender<()>,
-    shutdown_result: oneshot::Receiver<()>,
 }
 
 struct Inner {
@@ -106,57 +101,39 @@ impl IpcChannel {
     }
 }
 
-impl CliControl {
-    pub fn new(ctx: Arc<Context>) -> Result<Self> {
-        let sock_path = env::socket_path()?;
-        let listener = UnixListener::bind(sock_path)?;
+pub(super) async fn serve_cli(ctx: Arc<Context>) -> Result<()> {
+    let sock_path = env::socket_path()?;
+    let listener = UnixListener::bind(sock_path)?;
 
-        let (shutdown_signal_tx, shutdown_signal_rx) = oneshot::channel();
-        let (shutdown_result_tx, shutdown_result_rx) = oneshot::channel();
+    let inner = Arc::new(Inner {
+        id_seed: Default::default(),
+        pairs: Default::default(),
+        ctx,
+    });
 
-        let inner = Arc::new(Inner {
-            id_seed: Default::default(),
-            pairs: Default::default(),
-            ctx,
-        });
+    // Make sure the socket file is removed when the future is done
+    // or early cancelled.
+    struct DropGuard<'a>(&'a UnixListener);
 
-        let inner_clone = Arc::clone(&inner);
-        task::spawn(async move {
-            tokio::select! {
-                _ = shutdown_signal_rx => { },
-                _ = inner_clone.accept_loop(&listener) => {
-                    unreachable!("`accept_loop` should not return")
-                }
+    impl<'a> Drop for DropGuard<'a> {
+        #[rustfmt::skip]
+        fn drop(&mut self) {
+            let sock_addr = self.0
+                .local_addr()
+                .expect("could not get local address");
+            let sock_file_path = sock_addr
+                .as_pathname()
+                .expect("the socket should have a path name");
+            if let Err(err) = fs::remove_file(sock_file_path) {
+                error!("failed to cleanup the socket: {err:?}");
             }
-
-            // Close and cleanup the socket.
-            // TODO: force closing all active connections.
-            let sock_addr = listener.local_addr().expect("could not get local address");
-            fs::remove_file(
-                sock_addr
-                    .as_pathname()
-                    .expect("the socket should have a path name"),
-            )
-            .expect("failed to cleanup the socket");
-
-            _ = shutdown_result_tx.send(());
-        });
-
-        Ok(Self {
-            shutdown_signal: shutdown_signal_tx,
-            shutdown_result: shutdown_result_rx,
-        })
+        }
     }
 
-    pub async fn shutdown(self) {
-        self.shutdown_signal
-            .send(())
-            .expect("background task exited too early");
+    let _drop_guard = DropGuard(&listener);
+    inner.accept_loop(&listener).await;
 
-        self.shutdown_result
-            .await
-            .expect("expected shutdown result");
-    }
+    Ok(())
 }
 
 impl Inner {

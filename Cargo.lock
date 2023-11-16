@@ -493,6 +493,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "parking_lot",
  "petri-control",
  "petri-core",
  "pin-project-lite",
