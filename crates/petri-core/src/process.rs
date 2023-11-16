@@ -284,7 +284,7 @@ impl Inner {
         let mut shared_buf = None;
         self.output_subscribers.for_each(|sender| {
             let shared_buf = shared_buf.get_or_insert_with(|| Arc::from(buf));
-            _ = sender.send(Arc::clone(&shared_buf));
+            _ = sender.send(Arc::clone(shared_buf));
         });
 
         // Use `output_buf` lock as a synchronization barrier to make sure that
