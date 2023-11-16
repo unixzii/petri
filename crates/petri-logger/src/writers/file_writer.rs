@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub enum Error {
 
 pub struct FileWriter {
     file_path_builder: FilePathBuilder,
-    active_file: Option<File>,
+    active_file: Option<BufWriter<File>>,
     needs_rotation: Arc<AtomicBool>,
     rotation_driver: Option<Box<dyn RotationDriver>>,
 }
@@ -63,7 +63,8 @@ impl FileWriter {
                 .open(path)
             {
                 Ok(file) => {
-                    if let Some(mut old_file) = self.active_file.replace(file) {
+                    let writer = BufWriter::new(file);
+                    if let Some(mut old_file) = self.active_file.replace(writer) {
                         _ = old_file.flush();
                     }
                     return Ok(());
@@ -80,6 +81,9 @@ impl FileWriter {
 
 impl Drop for FileWriter {
     fn drop(&mut self) {
+        // Try flushing once regardless of any failures.
+        _ = self.flush();
+
         if let Some(driver) = self.rotation_driver.as_mut() {
             driver.cancel();
         }

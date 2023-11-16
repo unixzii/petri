@@ -34,7 +34,12 @@ impl SinkThread {
                     _ = writer.write_all(message.as_bytes());
                 }
             }
-            LoggerOp::SyncFlush(tx) => tx.send(()).expect("waiter released too early"),
+            LoggerOp::SyncFlush(tx) => {
+                for writer in self.writers.iter_mut() {
+                    _ = writer.flush();
+                }
+                tx.send(()).expect("waiter released too early");
+            }
         }
     }
 }
