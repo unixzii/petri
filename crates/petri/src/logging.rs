@@ -49,14 +49,11 @@ pub struct RotationDriver {
 }
 
 impl file_writer::RotationDriver for RotationDriver {
-    fn register<C>(&mut self, callback: C)
-    where
-        C: Fn() + Send + 'static,
-    {
+    fn register(&self, callback: Box<dyn Fn() + Send>) {
         self.callback_list.lock().push(Box::new(callback));
     }
 
-    fn cancel(&mut self) {
+    fn cancel(&self) {
         self.callback_list.lock().clear();
     }
 }

@@ -16,6 +16,11 @@ pub async fn run_server() {
         Err(err) => panic!("failed to start the server:\n{err:?}"),
     };
 
+    server.with_process_manager(|proc_mgr| {
+        let driver = logging::rotation_callback_registry().make_driver();
+        proc_mgr.set_logger_rotation_driver(driver);
+    });
+
     if let Err(err) = server.await {
         panic!("error occurred while waiting the server:\n{err:?}");
     }

@@ -19,7 +19,7 @@ pub struct FileWriter {
     file_path_builder: FilePathBuilder,
     active_file: Option<File>,
     needs_rotation: Arc<AtomicBool>,
-    rotation_driver: Option<Box<dyn AnyRotationDriver>>,
+    rotation_driver: Option<Box<dyn RotationDriver>>,
 }
 
 impl FileWriter {
@@ -34,14 +34,14 @@ impl FileWriter {
         Ok(this)
     }
 
-    pub fn set_rotation_driver<D>(&mut self, mut driver: D)
+    pub fn set_rotation_driver<D>(&mut self, driver: D)
     where
         D: RotationDriver + 'static,
     {
         let needs_rotation = Arc::clone(&self.needs_rotation);
-        driver.register(move || {
+        driver.register(Box::new(move || {
             needs_rotation.store(true, AtomicOrdering::Relaxed);
-        });
+        }));
         self.rotation_driver = Some(Box::new(driver));
     }
 
@@ -168,7 +168,7 @@ impl FilePathBuilder {
 }
 
 /// A trait for providing capabilities to drive the log rotation.
-pub trait RotationDriver: Send {
+pub trait RotationDriver: Send + Sync {
     /// Registers a callback to be invoked when the writer should
     /// check whether it needs to rotate the log.
     ///
@@ -178,22 +178,20 @@ pub trait RotationDriver: Send {
     ///
     /// When the driver is dropped or [`RotateDriver::cancel`] method
     /// is called, the registered callback will be cancelled.
-    fn register<C>(&mut self, callback: C)
-    where
-        C: Fn() + Send + 'static;
+    fn register(&self, callback: Box<dyn Fn() + Send>);
 
     /// Cancels all the registered callbacks, and none of them will
     /// be invoked after this method returns.
-    fn cancel(&mut self);
+    fn cancel(&self);
 }
 
-trait AnyRotationDriver: Send {
-    fn cancel(&mut self);
-}
+impl RotationDriver for Arc<dyn RotationDriver> {
+    fn register(&self, callback: Box<dyn Fn() + Send>) {
+        (**self).register(callback)
+    }
 
-impl<T: RotationDriver> AnyRotationDriver for T {
-    fn cancel(&mut self) {
-        RotationDriver::cancel(self)
+    fn cancel(&self) {
+        (**self).cancel()
     }
 }
 

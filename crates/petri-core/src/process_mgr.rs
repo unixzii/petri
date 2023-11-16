@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use indexmap::IndexMap;
+use parking_lot::Mutex;
+use petri_logger::writers::file_writer::RotationDriver;
 use petri_utils::subscriber_list;
 use tokio::sync::RwLock;
 
@@ -19,6 +21,7 @@ pub struct Handle {
 #[derive(Default)]
 struct Inner {
     processes: RwLock<IndexMap<u32, Process>>,
+    rotation_driver: Mutex<Option<Arc<dyn RotationDriver>>>,
 }
 
 impl Default for ProcessManager {
@@ -38,6 +41,14 @@ impl ProcessManager {
 
     pub fn handle(&self) -> Handle {
         self.handle.clone()
+    }
+
+    pub fn set_logger_rotation_driver<D>(&self, driver: D)
+    where
+        D: RotationDriver + 'static,
+    {
+        let mut rotation_driver = self.handle.inner.rotation_driver.lock();
+        *rotation_driver = Some(Arc::new(driver));
     }
 
     pub async fn shutdown(&self) {
@@ -90,5 +101,10 @@ impl Handle {
     pub(crate) async fn handle_process_exit(&self, id: u32, exit_code: i32) {
         info!("process {id} exit with code {exit_code}");
         self.inner.processes.write().await.remove(&id);
+    }
+
+    #[rustfmt::skip]
+    pub(crate) fn logger_rotation_driver(&self) -> Option<Arc<dyn RotationDriver>> {
+        self.inner.rotation_driver.lock().as_ref().map(Arc::clone)
     }
 }

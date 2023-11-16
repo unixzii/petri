@@ -88,17 +88,22 @@ impl Process {
             return Err(anyhow!("cannot get stderr pipe"));
         };
 
-        let log_file_writer = start_info.log_path.as_ref().and_then(|p| {
+        let mut log_file_writer = start_info.log_path.as_ref().and_then(|p| {
             let builder =
                 FilePathBuilder::new(p, &format!("{}-{}", &start_info.program, id), "log");
             match FileWriter::new(builder) {
-                Ok(file_writer) => Some(Mutex::new(file_writer)),
+                Ok(file_writer) => Some(file_writer),
                 Err(err) => {
                     error!("failed to open file writer for process logging: {err:?}");
                     None
                 }
             }
         });
+        if let Some(writer) = log_file_writer.as_mut() {
+            if let Some(rotation_driver) = mgr_handle.logger_rotation_driver() {
+                writer.set_rotation_driver(rotation_driver);
+            }
+        }
 
         let (kill_signal_tx, kill_signal_rx) = oneshot::channel();
         let (exit_code_tx, exit_code_rx) = watch::channel(None);
@@ -110,7 +115,7 @@ impl Process {
             manager_handle: mgr_handle.clone(),
             output_buf: Default::default(),
             output_subscribers: Default::default(),
-            output_file_writer: log_file_writer,
+            output_file_writer: log_file_writer.map(Mutex::new),
         });
         inner.monit_process(stdout, stderr, child, kill_signal_rx, exit_code_tx);
 
