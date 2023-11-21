@@ -2,7 +2,7 @@
 extern crate log;
 
 use std::future::Future;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -62,20 +62,21 @@ impl Server {
                 shutdown_request: shutdown_request_tx,
             };
 
-            tokio::select! {
-                res = petri_control::run_control_server(control_ctx) => {
-                    match res {
-                        Ok(()) => {
-                            unreachable!("this function should not return");
-                        },
-                        Err(e) => {
-                            error!("error occurred while running control: {e:?}");
-                        }
-                    }
-                },
-                _ = wait_for_shutdown(shutdown_request_rx) => {
+            // Always poll the future `wait_for_shutdown` first, because we want
+            // to shutdown the server ASAP when the controller requested.
+            let res = biased_select(
+                wait_for_shutdown(shutdown_request_rx),
+                petri_control::run_control_server(control_ctx),
+            )
+            .await;
+            match res {
+                Select::First(_) => {
                     info!("client requested to shutdown the server");
-                },
+                }
+                Select::Second(Err(e)) => {
+                    error!("error occurred while running control: {e:?}");
+                }
+                _ => unreachable!("this function should not return"),
             }
 
             info!("the server is shutting down...");
@@ -127,4 +128,27 @@ impl Drop for DropGuard {
             warn!("the server is not awaited before being dropped");
         }
     }
+}
+
+enum Select<A, B> {
+    First(A),
+    Second(B),
+}
+
+async fn biased_select<A: Future, B: Future>(
+    first: A,
+    second: B,
+) -> Select<<A as Future>::Output, <B as Future>::Output> {
+    let (mut first, mut second) = (pin!(first), pin!(second));
+
+    std::future::poll_fn(|cx| {
+        if let Poll::Ready(first_res) = first.as_mut().poll(cx) {
+            return Poll::Ready(Select::First(first_res));
+        }
+        if let Poll::Ready(second_res) = second.as_mut().poll(cx) {
+            return Poll::Ready(Select::Second(second_res));
+        }
+        Poll::Pending
+    })
+    .await
 }
