@@ -8,7 +8,9 @@ edition.workspace = true
 petri-logger = { path = "../petri-logger" }
 petri-utils = { path = "../petri-utils" }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 indexmap = { workspace = true }
+sha1 = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
 parking_lot = { workspace = true }

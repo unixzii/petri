@@ -17,6 +17,7 @@ use tokio::task;
 
 use crate::process_mgr::Handle as ProcessManagerHandle;
 
+#[derive(Debug)]
 pub struct StartInfo {
     pub program: String,
     pub args: Option<Vec<String>>,

@@ -9,6 +9,7 @@ use std::task::{Context, Poll};
 
 use anyhow::Result;
 use parking_lot::Mutex;
+use petri_core::job_mgr::JobManager;
 use petri_core::process_mgr::ProcessManager;
 use pin_project_lite::pin_project;
 use tokio::sync::watch;
@@ -40,14 +41,17 @@ impl Server {
         let process_manager = ProcessManager::new();
         let proc_mgr_handle = process_manager.handle();
 
+        let job_manager = JobManager::new(proc_mgr_handle.clone());
+        let job_mgr_handle = job_manager.handle();
+
         // Wrap the process manager into a shared container, because the caller
         // may configure it before the future actually takes it.
         let process_manager = Arc::new(Mutex::new(Some(process_manager)));
 
         let process_manager_clone = Arc::clone(&process_manager);
-        let dropped = Arc::new(AtomicBool::new(false));
+        let can_drop = Arc::new(AtomicBool::new(false));
         let drop_guard = DropGuard {
-            dropped: Arc::clone(&dropped),
+            can_drop: Arc::clone(&can_drop),
         };
         let fut = Box::pin(async move {
             let process_manager = process_manager_clone
@@ -59,6 +63,7 @@ impl Server {
 
             let control_ctx = petri_control::Context {
                 proc_mgr_handle,
+                job_mgr_handle,
                 shutdown_request: shutdown_request_tx,
             };
 
@@ -82,10 +87,14 @@ impl Server {
             info!("the server is shutting down...");
             process_manager.shutdown().await;
 
-            dropped.store(true, AtomicOrdering::Relaxed);
+            // Defer releasing the job manager the make sure that it can
+            // handle all the remaining events from the process manager.
+            drop(job_manager);
+            drop(process_manager);
+
+            can_drop.store(true, AtomicOrdering::Relaxed);
 
             info!("the server did shutdown successfully");
-
             Ok(())
         });
 
@@ -118,12 +127,12 @@ impl Future for Server {
 }
 
 struct DropGuard {
-    dropped: Arc<AtomicBool>,
+    can_drop: Arc<AtomicBool>,
 }
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        if !self.dropped.load(AtomicOrdering::Relaxed) {
+        if !self.can_drop.load(AtomicOrdering::Relaxed) {
             // TODO: shutdown the server in the background.
             warn!("the server is not awaited before being dropped");
         }

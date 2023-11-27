@@ -43,7 +43,7 @@ impl RunSubcommand {
             log_path: self.log_path,
         };
 
-        let pid = match ctx.proc_mgr_handle.add_process(start_info).await {
+        let pid = match ctx.proc_mgr_handle.add_process(&start_info).await {
             Ok(id) => id,
             Err(err) => {
                 channel
