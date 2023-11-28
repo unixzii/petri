@@ -9,6 +9,7 @@ petri-core = { path = "../petri-core" }
 petri-utils = { path = "../petri-utils" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 color-print = { workspace = true }
 log = { workspace = true }

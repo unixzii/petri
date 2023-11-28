@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
+use chrono::{DateTime, Local};
 use petri_logger::writers::file_writer::{FilePathBuilder, FileWriter};
 use petri_utils::subscriber_list::{self, SubscriberList};
 use petri_utils::LogBuffer;
@@ -17,7 +18,7 @@ use tokio::task;
 
 use crate::process_mgr::Handle as ProcessManagerHandle;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StartInfo {
     pub program: String,
     pub args: Option<Vec<String>>,
@@ -47,6 +48,7 @@ struct Inner {
     id: u32,
     cmd: String,
     started_at: Instant,
+    local_started_at: DateTime<Local>,
 
     /// The process manager that owns this process.
     manager_handle: ProcessManagerHandle,
@@ -58,17 +60,25 @@ struct Inner {
     output_file_writer: Option<Mutex<FileWriter>>,
 }
 
-impl Process {
-    pub(super) fn spawn(start_info: &StartInfo, mgr_handle: &ProcessManagerHandle) -> Result<Self> {
-        let mut cmd_string = start_info.program.clone();
-        let mut command = Command::new(&start_info.program);
-
-        if let Some(args) = &start_info.args {
-            command.args(args);
+impl StartInfo {
+    pub fn cmd(&self) -> String {
+        let mut cmd_string = self.program.clone();
+        if let Some(args) = &self.args {
             for arg in args {
                 cmd_string.push(' ');
                 cmd_string.push_str(arg);
             }
+        }
+        cmd_string
+    }
+}
+
+impl Process {
+    pub(super) fn spawn(start_info: &StartInfo, mgr_handle: &ProcessManagerHandle) -> Result<Self> {
+        let mut command = Command::new(&start_info.program);
+
+        if let Some(args) = &start_info.args {
+            command.args(args);
         }
 
         let mut child = command
@@ -110,8 +120,9 @@ impl Process {
         let (exit_code_tx, exit_code_rx) = watch::channel(None);
         let inner = Arc::new(Inner {
             id,
-            cmd: cmd_string,
+            cmd: start_info.cmd(),
             started_at,
+            local_started_at: Local::now(),
             state: Mutex::new(State::Running(kill_signal_tx, exit_code_rx)),
             manager_handle: mgr_handle.clone(),
             output_buf: Default::default(),
@@ -123,16 +134,24 @@ impl Process {
         Ok(Self { inner })
     }
 
+    #[inline]
     pub fn id(&self) -> u32 {
         self.inner.id
     }
 
+    #[inline]
     pub fn cmd(&self) -> &str {
         &self.inner.cmd
     }
 
+    #[inline]
     pub fn started_at(&self) -> Instant {
         self.inner.started_at
+    }
+
+    #[inline]
+    pub fn local_started_at(&self) -> &DateTime<Local> {
+        &self.inner.local_started_at
     }
 
     pub async fn kill(&self) -> i32 {

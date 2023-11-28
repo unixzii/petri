@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
+use petri_core::job_mgr::JobDescription;
 use petri_core::process::StartInfo;
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +15,9 @@ pub struct RunSubcommand {
     /// Redirect stdout & stderr to log files in the given path.
     #[arg(short)]
     log_path: Option<PathBuf>,
+    /// Create a job for the command.
+    #[arg(short = 'j')]
+    create_job: bool,
     #[arg(required = true, last = true)]
     cmd_line: Vec<String>,
 }
@@ -43,13 +47,39 @@ impl RunSubcommand {
             log_path: self.log_path,
         };
 
-        let pid = match ctx.proc_mgr_handle.add_process(&start_info).await {
-            Ok(id) => id,
-            Err(err) => {
-                channel
-                    .write_output("failed to start the process (maybe it exited too early)\n")
-                    .await?;
-                return Err(err.context("run"));
+        let pid = if self.create_job {
+            let job_desc: JobDescription = JobDescription {
+                start_info,
+                auto_restart: false,
+            };
+            let jid = match ctx.job_mgr_handle.add_job(job_desc).await {
+                Ok(id) => id,
+                Err(err) => {
+                    channel
+                        .write_output("failed to create a job for the command\n")
+                        .await?;
+                    return Err(err.context("run"));
+                }
+            };
+
+            match ctx.job_mgr_handle.start_job(&jid).await {
+                Ok(id) => id,
+                Err(err) => {
+                    channel
+                        .write_output("failed to start the job (you can run it again later)\n")
+                        .await?;
+                    return Err(err.context("run"));
+                }
+            }
+        } else {
+            match ctx.proc_mgr_handle.add_process(&start_info).await {
+                Ok(id) => id,
+                Err(err) => {
+                    channel
+                        .write_output("failed to start the process (maybe it exited too early)\n")
+                        .await?;
+                    return Err(err.context("run"));
+                }
             }
         };
 
