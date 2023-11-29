@@ -5,6 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::DateTime;
 use clap::Args;
+use petri_utils::console_table;
 use petri_utils::time::FormattedUptime;
 use serde::{Deserialize, Serialize};
 
@@ -12,12 +13,12 @@ use super::{CommandClient, IpcChannel, OwnedIpcMessagePacket, ResponseHandler};
 use crate::Context as ControlContext;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PsResponse {
+struct PsResponse {
     processes: Vec<Process>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Process {
+struct Process {
     jid: Option<String>,
     pid: Option<u32>,
     cmd: String,
@@ -108,49 +109,36 @@ impl ResponseHandler for PsResponseHandler {
             DateTime::from_timestamp(proc.created_at_ts.0, proc.created_at_ts.1)
         });
 
-        // Format all the fields into string and cache them, because we need to iterate
-        // them multiple times to calculate the column width.
-        let formatted_rows: Vec<_> = processes
-            .into_iter()
-            .map(|proc| {
-                let pid_string = proc.pid.map(|pid| pid.to_string()).unwrap_or_default();
-                let jid_string = proc.jid.map(|jid| jid[0..8].to_owned()).unwrap_or_default();
-                let uptime = FormattedUptime::new(Duration::from_secs(proc.uptime_secs));
-                let status_string = if proc.pid.is_some() {
-                    format!("Up {uptime}")
-                } else if let Some(last_exit_code) = proc.last_exit_code {
-                    format!("Exited with code {last_exit_code}")
-                } else {
-                    "Not started".to_owned()
-                };
-                let cmd = proc.cmd;
-                (pid_string, jid_string, status_string, cmd)
-            })
-            .collect();
+        let pid_column =
+            console_table::ColumnOptions::new("PID").alignment(console_table::Alignment::Right);
+        let jid_column = console_table::ColumnOptions::new("JID").spacing(2);
+        let status_column = console_table::ColumnOptions::new("STATUS").spacing(3);
+        let cmd_column = console_table::ColumnOptions::new("CMD");
 
-        let pid_column_width = formatted_rows
-            .iter()
-            .map(|cols| cols.0.len())
-            .max()
-            .unwrap_or_default()
-            .max(3);
-        let status_column_width = formatted_rows
-            .iter()
-            .map(|cols| cols.2.len())
-            .max()
-            .unwrap_or_default()
-            .max(5);
+        let table = console_table::Builder::new()
+            .with_new_columns(
+                (pid_column, jid_column, status_column, cmd_column),
+                |insert| {
+                    for proc in processes {
+                        let pid_string = proc.pid.map(|pid| pid.to_string()).unwrap_or_default();
+                        let jid_string =
+                            proc.jid.map(|jid| jid[0..8].to_owned()).unwrap_or_default();
+                        let uptime = FormattedUptime::new(Duration::from_secs(proc.uptime_secs));
+                        let status_string = if proc.pid.is_some() {
+                            format!("Up {uptime}")
+                        } else if let Some(last_exit_code) = proc.last_exit_code {
+                            format!("Exited with code {last_exit_code}")
+                        } else {
+                            "Not started".to_owned()
+                        };
+                        insert((pid_string, jid_string, status_string, proc.cmd));
+                    }
+                },
+            )
+            .build();
 
-        println!(
-            "{:>pid_column_width$} JID       {:<status_column_width$}   CMD",
-            "PID", "STATUS"
-        );
-        for row in formatted_rows {
-            println!(
-                "{:>pid_column_width$} {:<8}  {:<status_column_width$}   {}",
-                row.0, row.1, row.2, row.3,
-            );
-        }
+        println!("{table}");
+
         Ok(())
     }
 }

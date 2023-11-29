@@ -3,3 +3,9 @@ name = "petri-utils"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+
+[dependencies]
+paste = "1"
+
+[dev-dependencies]
+indoc = "2"

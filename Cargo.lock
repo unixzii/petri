@@ -353,6 +353,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "indoc"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e186cfbae8084e513daff4240b4797e342f988cecda4fb6c939150f96315fd8"
+
+[[package]]
 name = "itoa"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -479,6 +485,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
+
+[[package]]
 name = "petri"
 version = "0.1.0"
 dependencies = [
@@ -556,6 +568,10 @@ dependencies = [
 [[package]]
 name = "petri-utils"
 version = "0.1.0"
+dependencies = [
+ "indoc",
+ "paste",
+]
 
 [[package]]
 name = "pin-project-lite"
