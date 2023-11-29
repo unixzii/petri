@@ -1,3 +1,4 @@
+mod job;
 mod log;
 mod ps;
 mod run;
@@ -29,6 +30,9 @@ pub enum Command {
     Log(log::LogSubcommand),
     /// List processes.
     Ps(ps::PsSubcommand),
+    /// Manage jobs.
+    #[command(subcommand)]
+    Job(job::JobSubcommand),
     /// Request the server to stop.
     StopServer(stop_server::StopServerSubcommand),
 }
@@ -40,6 +44,9 @@ macro_rules! dispatch_command {
             Command::Stop($s_var) => $handler,
             Command::Log($s_var) => $handler,
             Command::Ps($s_var) => $handler,
+            Command::Job(job_subcommand) => match job_subcommand {
+                job::JobSubcommand::Ls($s_var) => $handler,
+            },
             Command::StopServer($s_var) => $handler,
         }
     };
