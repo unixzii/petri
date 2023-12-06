@@ -7,6 +7,7 @@ use anyhow::Result;
 use chrono::{DateTime, Local};
 use indexmap::IndexMap;
 use petri_utils::subscriber_list::CancellationToken;
+use petri_utils::Id;
 use sha1::digest::OutputSizeUser;
 use sha1::{Digest, Sha1};
 use tokio::sync::RwLock;
@@ -23,7 +24,7 @@ pub struct JobDescription {
 
 #[derive(Clone, Debug)]
 pub struct Job {
-    id: String,
+    id: Id,
     desc: JobDescription,
     created_at: DateTime<Local>,
     pid: Option<u32>,
@@ -45,8 +46,8 @@ struct ProcessManagerEventHandler {
 
 struct Inner {
     proc_mgr_handle: ProcessManagerHandle,
-    jobs: RwLock<IndexMap<String, Job>>,
-    pid_index: RwLock<HashMap<u32, String>>,
+    jobs: RwLock<IndexMap<Id, Job>>,
+    pid_index: RwLock<HashMap<u32, Id>>,
     _cancellation_token: CancellationToken<Box<dyn process_mgr::EventHandler>>,
 }
 
@@ -154,15 +155,16 @@ impl Handle {
             .expect("current system date is invalid")
             .as_millis() as u64;
         let digest = job.digest(now_ts);
+        let job_id = Id::from(&digest);
 
         let mut jobs = self.inner.jobs.write().await;
-        if jobs.contains_key(&digest) {
+        if jobs.contains_key(digest.as_str()) {
             return Err(anyhow!("job id has been already used"));
         }
         jobs.insert(
-            digest.clone(),
+            job_id.clone(),
             Job {
-                id: digest.clone(),
+                id: job_id.clone(),
                 desc: job,
                 created_at: Local::now(),
                 pid: None,
@@ -191,7 +193,7 @@ impl Handle {
             .add_process(&job.desc.start_info)
             .await?;
         job.pid = Some(pid);
-        pid_index.insert(pid, jid.to_owned());
+        pid_index.insert(pid, job.id.clone());
 
         Ok(pid)
     }
