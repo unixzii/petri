@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::DateTime;
 use clap::Args;
-use petri_utils::console_table;
+use petri_utils::console_table::{self, ColumnCollection};
 use petri_utils::time::FormattedUptime;
 use serde::{Deserialize, Serialize};
 
@@ -115,29 +115,24 @@ impl ResponseHandler for PsResponseHandler {
         let status_column = console_table::ColumnOptions::new("STATUS").spacing(3);
         let cmd_column = console_table::ColumnOptions::new("CMD");
 
-        let table = console_table::Builder::new()
-            .with_new_columns(
-                (pid_column, jid_column, status_column, cmd_column),
-                |insert| {
-                    for proc in processes {
-                        let pid_string = proc.pid.map(|pid| pid.to_string()).unwrap_or_default();
-                        let jid_string =
-                            proc.jid.map(|jid| jid[0..8].to_owned()).unwrap_or_default();
-                        let uptime = FormattedUptime::new(Duration::from_secs(proc.uptime_secs));
-                        let status_string = if proc.pid.is_some() {
-                            format!("Up {uptime}")
-                        } else if let Some(last_exit_code) = proc.last_exit_code {
-                            format!("Exited with code {last_exit_code}")
-                        } else {
-                            "Not started".to_owned()
-                        };
-                        insert((pid_string, jid_string, status_string, proc.cmd));
-                    }
-                },
-            )
-            .build();
+        let mut table_builder =
+            (pid_column, jid_column, status_column, cmd_column).into_table_builder();
 
-        println!("{table}");
+        for proc in processes {
+            let pid_string = proc.pid.map(|pid| pid.to_string()).unwrap_or_default();
+            let jid_string = proc.jid.map(|jid| jid[0..8].to_owned()).unwrap_or_default();
+            let uptime = FormattedUptime::new(Duration::from_secs(proc.uptime_secs));
+            let status_string = if proc.pid.is_some() {
+                format!("Up {uptime}")
+            } else if let Some(last_exit_code) = proc.last_exit_code {
+                format!("Exited with code {last_exit_code}")
+            } else {
+                "Not started".to_owned()
+            };
+            table_builder.push_row(pid_string, jid_string, status_string, proc.cmd);
+        }
+
+        println!("{table_builder}");
 
         Ok(())
     }

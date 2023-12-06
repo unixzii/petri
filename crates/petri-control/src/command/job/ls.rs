@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::DateTime;
 use clap::Args;
-use petri_utils::console_table;
+use petri_utils::console_table::{self, ColumnCollection};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{IpcChannel, OwnedIpcMessagePacket};
@@ -76,16 +76,14 @@ impl ResponseHandler for ListResponseHandler {
             .spacing(2);
         let cmd_column = console_table::ColumnOptions::new("CMD");
 
-        let table = console_table::Builder::new()
-            .with_new_columns((jid_column, pid_column, cmd_column), |insert| {
-                for job in jobs {
-                    let pid_string = job.pid.map(|pid| pid.to_string()).unwrap_or_default();
-                    insert((job.jid, pid_string, job.cmd));
-                }
-            })
-            .build();
+        let mut table_builder = (jid_column, pid_column, cmd_column).into_table_builder();
 
-        println!("{table}");
+        for job in jobs {
+            let pid_string = job.pid.map(|pid| pid.to_string()).unwrap_or_default();
+            table_builder.push_row(job.jid, pid_string, job.cmd);
+        }
+
+        println!("{table_builder}");
 
         Ok(())
     }

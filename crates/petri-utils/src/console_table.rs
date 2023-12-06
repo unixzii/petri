@@ -1,11 +1,5 @@
 use std::fmt::Display;
 
-/// A builder which can be used to create a printable table.
-#[derive(Clone, Default)]
-pub struct Builder {
-    columns: Vec<Column>,
-}
-
 /// Options for customizing a table column.
 #[derive(Clone, Debug)]
 pub struct ColumnOptions {
@@ -22,30 +16,53 @@ pub enum Alignment {
 }
 
 #[derive(Clone)]
+struct CoreBuilder {
+    columns: Vec<Column>,
+}
+
+#[derive(Clone)]
 struct Column {
     options: ColumnOptions,
     max_width: usize,
     rows: Vec<String>,
 }
 
-impl Builder {
-    /// Constructs a new `Builder`.
-    pub fn new() -> Self {
-        Self::default()
+impl ColumnOptions {
+    /// Constructs a new `ColumnOptions` with the specified title.
+    pub fn new(title: &str) -> Self {
+        Self {
+            title: title.to_owned(),
+            alignment: Alignment::Left,
+            spacing: 1,
+        }
     }
 
-    /// Inserts a set of columns with the specified options, and invokes a
-    /// builder closure to fill data.
-    pub fn with_new_columns<C: ColumnCollection, B>(mut self, columns: C, builder: B) -> Self
-    where
-        B: FnOnce(&mut dyn FnMut(<C as ColumnCollection>::RowInserterArg)),
-    {
-        columns.build(&mut self.columns, builder);
+    /// Sets the alignment for the column.
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = alignment;
         self
     }
 
-    /// Builds the table and returns it as a `String` value.
-    pub fn build(&self) -> String {
+    /// Sets the trailing spacing for the column.
+    pub fn spacing(mut self, spacing: u32) -> Self {
+        self.spacing = spacing;
+        self
+    }
+}
+
+impl CoreBuilder {
+    #[inline]
+    fn new(columns: Vec<Column>) -> Self {
+        Self { columns }
+    }
+
+    fn push_row(&mut self, column_idx: usize, field: String) {
+        let column = &mut self.columns[column_idx];
+        column.max_width = column.max_width.max(field.len());
+        column.rows.push(field);
+    }
+
+    fn build(&self) -> String {
         let mut table = String::new();
         if self.columns.is_empty() {
             return table;
@@ -98,97 +115,97 @@ impl Builder {
     }
 }
 
-impl Display for Builder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.build())
-    }
-}
-
-impl ColumnOptions {
-    /// Constructs a new `ColumnOptions` with the specified title.
-    pub fn new(title: &str) -> Self {
-        Self {
-            title: title.to_owned(),
-            alignment: Alignment::Left,
-            spacing: 1,
-        }
-    }
-
-    /// Sets the alignment for the column.
-    pub fn alignment(mut self, alignment: Alignment) -> Self {
-        self.alignment = alignment;
-        self
-    }
-
-    /// Sets the trailing spacing for the column.
-    pub fn spacing(mut self, spacing: u32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-}
-
-#[allow(private_interfaces)]
+/// A collection of column definitions, which can be used to make
+/// builders for creating tables with those columns.
 pub trait ColumnCollection {
-    type RowInserterArg;
+    /// The type of the table builder being created.
+    ///
+    /// This can be different according to the number of columns in
+    /// the collection, ensuring the row operations are type-safe.
+    type Builder;
 
-    fn build<B>(self, columns: &mut Vec<Column>, builder: B)
-    where
-        B: FnOnce(&mut dyn FnMut(Self::RowInserterArg));
+    /// Creates a table builder from the collection.
+    fn into_table_builder(self) -> Self::Builder;
+}
+
+mod __private {
+    #[macro_export]
+    macro_rules! replace_with {
+        ($t:tt => $r:tt) => {
+            $r
+        };
+    }
+
+    pub use replace_with;
 }
 
 macro_rules! impl_column_collection {
-    ($($label:tt),*) => {
-        macro_rules! replace_with {
-            ($t:tt => $r:tt) => { $r };
+    ($builder:ident, $($label:tt),*) => {
+        #[derive(Clone)]
+        pub struct $builder {
+            core: CoreBuilder,
         }
 
-        #[allow(private_interfaces)]
-        impl ColumnCollection for ($(replace_with!($label => ColumnOptions),)*) {
-            type RowInserterArg = ($(replace_with!($label => String),)*);
+        paste::paste! {
+            impl $builder {
+                /// Appends a row with the specified field values.
+                pub fn push_row(&mut self, $([<field_ $label>]: String),*) {
+                    $(
+                        self.core.push_row($label, [<field_ $label>]);
+                    )*
+                }
 
-            fn build<B>(self, columns: &mut Vec<Column>, builder: B)
-            where
-                B: FnOnce(&mut dyn FnMut(Self::RowInserterArg))
-            {
+                /// Builds the table and returns it as a `String` value.
+                pub fn build(&self) -> String {
+                    self.core.build()
+                }
+            }
+        }
+
+        impl Display for $builder {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.build())
+            }
+        }
+
+        impl ColumnCollection for ($(__private::replace_with!($label => ColumnOptions),)*) {
+            type Builder = $builder;
+
+            fn into_table_builder(self) -> $builder {
                 paste::paste! {
-                    $(
-                        let title_width = self.$label.title.len();
-                        let mut [<column_ $label>] = Column {
-                            options: self.$label,
-                            max_width: title_width,
-                            rows: vec![],
-                        };
-                    )*
-                    let mut inserter = |($([<field_ $label>],)*): ($(replace_with!($label => String),)*)| {
-                        $(
-                            [<column_ $label>].max_width = [<column_ $label>].max_width.max([<field_ $label>].len());
-                            [<column_ $label>].rows.push([<field_ $label>]);
-                        )*
-                    };
-                    builder(&mut inserter);
-                    $(
-                        columns.push([<column_ $label>]);
-                    )*
+                    let core = CoreBuilder::new(
+                        vec![
+                            $({
+                                let title_width = self.$label.title.len();
+                                Column {
+                                    options: self.$label,
+                                    max_width: title_width,
+                                    rows: vec![],
+                                }
+                            },)*
+                        ]
+                    );
+                    $builder { core }
                 }
             }
         }
     };
 }
 
-impl_column_collection!(0);
-impl_column_collection!(0, 1);
-impl_column_collection!(0, 1, 2);
-impl_column_collection!(0, 1, 2, 3);
-impl_column_collection!(0, 1, 2, 3, 4);
-impl_column_collection!(0, 1, 2, 3, 4, 5);
-impl_column_collection!(0, 1, 2, 3, 4, 5, 6);
-impl_column_collection!(0, 1, 2, 3, 4, 5, 6, 7);
+impl_column_collection!(Builder1, 0);
+impl_column_collection!(Builder2, 0, 1);
+impl_column_collection!(Builder3, 0, 1, 2);
+impl_column_collection!(Builder4, 0, 1, 2, 3);
+impl_column_collection!(Builder5, 0, 1, 2, 3, 4);
+impl_column_collection!(Builder6, 0, 1, 2, 3, 4, 5);
+impl_column_collection!(Builder7, 0, 1, 2, 3, 4, 5, 6);
+impl_column_collection!(Builder8, 0, 1, 2, 3, 4, 5, 6, 7);
 
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
 
-    use super::{Alignment, Builder, ColumnOptions};
+    use super::{Alignment, ColumnCollection, ColumnOptions};
 
     #[test]
     fn test_simple_table() {
@@ -198,21 +215,19 @@ mod tests {
         let value_column = ColumnOptions::new("VALUE").spacing(3);
         let note_column = ColumnOptions::new("NOTE");
 
-        let table = Builder::new()
-            .with_new_columns((key_column, value_column, note_column), |insert| {
-                insert((
-                    "first".to_string(),
-                    "a".to_string(),
-                    "This is a note".to_string(),
-                ));
-                insert((
-                    "second".to_string(),
-                    "b".to_string(),
-                    "This is another note".to_string(),
-                ));
-            })
-            .build();
+        let mut builder = (key_column, value_column, note_column).into_table_builder();
+        builder.push_row(
+            "first".to_string(),
+            "a".to_string(),
+            "This is a note".to_string(),
+        );
+        builder.push_row(
+            "second".to_string(),
+            "b".to_string(),
+            "This is another note".to_string(),
+        );
 
+        let table = builder.build();
         assert_eq!(
             table,
             indoc! {"
