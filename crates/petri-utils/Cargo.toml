@@ -7,5 +7,13 @@ edition.workspace = true
 [dependencies]
 paste = "1"
 
+[dependencies.tokio]
+workspace = true
+features = ["rt", "macros", "sync", "time"]
+
 [dev-dependencies]
 indoc = "2"
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["test-util"]
